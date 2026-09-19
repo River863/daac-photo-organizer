@@ -3,35 +3,61 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>DAAC Photo Upload</title>
+  <meta name="theme-color" content="#133f4e">
+  <title>DAAC Photo Hub</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%23133f4e'/%3E%3Cpath d='M13 21h12l4-5h10l4 5h8v28H13z' fill='%23f6c85f'/%3E%3Ccircle cx='32' cy='35' r='9' fill='%23133f4e'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-  <main class="shell">
-    <section class="card">
-      <header class="hero">
-        <div class="logo-mark">DAAC</div>
-        <div><p class="eyebrow">Del Amo Action Committee</p><h1>Photo Upload</h1><p class="intro">Upload event and program photos directly to the correct DAAC Drive folder.</p></div>
-      </header>
+  <header class="topbar">
+    <a class="brand" href="#home" aria-label="DAAC Photo Hub home"><span class="brand-mark">DAAC</span><span>Photo Hub</span></a>
+    <nav><button class="nav-link active" data-view="home">Album</button><button class="nav-link" data-view="upload">Upload</button><button class="nav-link admin-only hidden" data-view="review">Review <span id="pendingBadge" class="badge">0</span></button><button id="logoutBtn" class="nav-link hidden">Lock</button></nav>
+  </header>
+
+  <main>
+    <section id="homeView" class="view active">
+      <div class="album-head"><div><p class="eyebrow">Del Amo Action Committee</p><h1>Community in action.</h1><p>Recent moments from DAAC events, programs, partnerships, and environmental work.</p></div><button class="primary" data-view="upload">Add photos</button></div>
+      <div class="gallery" id="gallery">
+        {% for photo in gallery %}<figure><img src="{{ photo.url }}" alt="DAAC community photo" loading="lazy"><figcaption>{{ photo.original_name }}</figcaption></figure>{% else %}<div class="empty"><span>📷</span><h2>The album is ready</h2><p>Photos approved for the gallery will appear here.</p></div>{% endfor %}
+      </div>
+    </section>
+
+    <section id="gateView" class="view panel narrow">
+      <p class="eyebrow">Team access</p><h1>Enter your access code</h1><p class="muted">DAAC team members can upload photos. Organizers can also review and approve where they belong.</p>
+      <form id="loginForm"><label for="accessCode">Access code</label><input id="accessCode" type="password" autocomplete="current-password" required><button class="primary full" type="submit">Continue</button><div id="loginStatus" class="status" aria-live="polite"></div></form>
+    </section>
+
+    <section id="uploadView" class="view panel">
+      <div class="section-head"><div><p class="eyebrow">New upload</p><h1>Share photos with DAAC</h1><p class="muted">Choose the best category. An organizer will confirm it before anything moves into the permanent Drive folder.</p></div><div class="step-pill">Approval required</div></div>
       <form id="uploadForm" enctype="multipart/form-data">
-        <label>Category <span>*</span></label>
-        <select name="category" required><option value="" selected disabled>Select a category</option>{% for category in categories %}<option value="{{ category }}">{{ category }}</option>{% endfor %}</select>
-        <label>Event or project name <small>optional</small></label>
-        <input name="event_name" type="text" placeholder="Example: September Open House">
-        <label>Photos <span>*</span></label>
-        <label class="drop" for="photos"><strong>Choose photos</strong><em>You can select multiple images at once</em><input id="photos" name="photos" type="file" accept="image/*" multiple required></label>
-        <div id="fileCount" class="file-count">No photos selected</div>
-        <label>Notes <small>optional</small></label>
-        <textarea name="notes" rows="3" placeholder="Anything the team should know about these photos"></textarea>
-        <button id="submitBtn" type="submit">Upload Photos</button>
-        <div id="status" class="status" aria-live="polite"></div>
+        <div class="grid two"><div><label>Your name <span>*</span></label><input name="uploader_name" required placeholder="Name"></div><div><label>Email <small>optional</small></label><input name="uploader_email" type="email" placeholder="name@example.com"></div></div>
+        <div class="grid two"><div><label>Event or project <span>*</span></label><input name="event_name" required placeholder="Example: September Open House"></div><div><label>Suggested category <span>*</span></label><select name="category" required><option value="" selected disabled>Select a category</option>{% for category in categories %}<option value="{{ category }}">{{ category }}</option>{% endfor %}</select></div></div>
+        <label>Photos <span>*</span></label><label class="drop" for="photos"><span class="drop-icon">＋</span><strong>Choose photos</strong><em>JPG, PNG, WebP, HEIC or HEIF · up to 25 MB each</em><input id="photos" name="photos" type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" multiple required></label><div id="previewStrip" class="preview-strip"></div><div id="fileCount" class="file-count">No photos selected</div>
+        <label>Notes <small>optional</small></label><textarea name="notes" rows="3" placeholder="Names, context, or anything the reviewer should know"></textarea>
+        <button id="submitBtn" class="primary full" type="submit">Send for approval</button><div id="uploadStatus" class="status" aria-live="polite"></div>
       </form>
     </section>
+
+    <section id="reviewView" class="view">
+      <div class="section-head"><div><p class="eyebrow">Organizer dashboard</p><h1>Photos waiting for review</h1><p class="muted">Confirm the category, decide whether each batch belongs in the public album, then approve it for Drive.</p></div><button id="refreshBtn" class="secondary">Refresh</button></div>
+      <div id="reviewList" class="review-list"><div class="empty"><h2>Loading uploads…</h2></div></div>
+    </section>
   </main>
+
+  <template id="batchTemplate"><article class="batch-card"><div class="batch-top"><div><p class="batch-meta"></p><h2 class="batch-title"></h2><p class="batch-notes"></p></div><span class="pending-chip">Pending</span></div><div class="batch-photos"></div><div class="review-controls"><label>Destination<select class="category-select">{% for category in categories %}<option value="{{ category }}">{{ category }}</option>{% endfor %}</select></label><label class="check"><input class="gallery-check" type="checkbox"><span>Show these in the homepage album</span></label><div class="review-actions"><button class="reject secondary">Reject</button><button class="approve primary">Approve & move to Drive</button></div><div class="status"></div></div></article></template>
 <script>
-const form=document.getElementById('uploadForm'), photos=document.getElementById('photos'), count=document.getElementById('fileCount'), status=document.getElementById('status'), btn=document.getElementById('submitBtn');
-photos.addEventListener('change',()=>{const n=photos.files.length;count.textContent=n?`${n} photo${n===1?'':'s'} selected`:'No photos selected';});
-form.addEventListener('submit',async(e)=>{e.preventDefault();status.className='status';status.textContent='Uploading photos…';btn.disabled=true;btn.textContent='Uploading…';try{const res=await fetch('/upload',{method:'POST',body:new FormData(form)});const data=await res.json();if(!res.ok||!data.ok)throw new Error(data.error||'Upload failed');status.className='status success';status.textContent=`Done! ${data.count} photo${data.count===1?'':'s'} uploaded directly to ${data.category}.`;form.reset();count.textContent='No photos selected';}catch(err){status.className='status error';status.textContent=err.message;}finally{btn.disabled=false;btn.textContent='Upload Photos';}});
+const views={home:document.querySelector('#homeView'),gate:document.querySelector('#gateView'),upload:document.querySelector('#uploadView'),review:document.querySelector('#reviewView')};let role=null;
+function show(name){Object.values(views).forEach(v=>v.classList.remove('active'));views[name].classList.add('active');document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===name));scrollTo({top:0,behavior:'smooth'});if(name==='review')loadPending();}
+document.addEventListener('click',e=>{const b=e.target.closest('[data-view]');if(!b)return;const target=b.dataset.view;if((target==='upload'||target==='review')&&!role){show('gate');return;}if(target==='review'&&role!=='admin')return;show(target);});
+async function getSession(){const r=await fetch('/session'),d=await r.json();role=d.role;document.querySelectorAll('.admin-only').forEach(x=>x.classList.toggle('hidden',role!=='admin'));document.querySelector('#logoutBtn').classList.toggle('hidden',!role);if(role==='admin')loadPending(true);}
+document.querySelector('#loginForm').addEventListener('submit',async e=>{e.preventDefault();const s=document.querySelector('#loginStatus');s.textContent='Checking…';const r=await fetch('/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:document.querySelector('#accessCode').value})}),d=await r.json();if(!r.ok){s.className='status error';s.textContent=d.error;return;}role=d.role;s.className='status success';s.textContent='Access granted.';document.querySelectorAll('.admin-only').forEach(x=>x.classList.toggle('hidden',role!=='admin'));document.querySelector('#logoutBtn').classList.remove('hidden');show(role==='admin'?'review':'upload');});
+document.querySelector('#logoutBtn').addEventListener('click',async()=>{await fetch('/logout',{method:'POST'});role=null;document.querySelectorAll('.admin-only').forEach(x=>x.classList.add('hidden'));document.querySelector('#logoutBtn').classList.add('hidden');show('home');});
+const photos=document.querySelector('#photos'),strip=document.querySelector('#previewStrip'),count=document.querySelector('#fileCount');photos.addEventListener('change',()=>{strip.innerHTML='';[...photos.files].slice(0,8).forEach(f=>{const img=document.createElement('img');img.src=URL.createObjectURL(f);img.alt='Selected photo preview';strip.append(img)});const n=photos.files.length;count.textContent=n?`${n} photo${n===1?'':'s'} selected`:'No photos selected';});
+document.querySelector('#uploadForm').addEventListener('submit',async e=>{e.preventDefault();const form=e.currentTarget,s=document.querySelector('#uploadStatus'),btn=document.querySelector('#submitBtn');s.className='status';s.textContent='Uploading securely…';btn.disabled=true;try{const r=await fetch('/upload',{method:'POST',body:new FormData(form)}),d=await r.json();if(r.status===401){role=null;show('gate');throw new Error('Your session was locked. Enter the access code again.')}if(!r.ok)throw new Error(d.error||'Upload failed');s.className='status success';s.textContent=`Received! ${d.count} photo${d.count===1?'':'s'} are waiting for organizer approval.`;form.reset();strip.innerHTML='';count.textContent='No photos selected';if(role==='admin')loadPending(true);}catch(err){s.className='status error';s.textContent=err.message;}finally{btn.disabled=false;}});
+async function loadPending(quiet=false){const list=document.querySelector('#reviewList');if(!quiet)list.innerHTML='<div class="empty"><h2>Loading uploads…</h2></div>';const r=await fetch('/api/pending'),d=await r.json();if(r.status===401){role=null;show('gate');return;}if(!r.ok){list.innerHTML=`<div class="empty"><h2>Could not load uploads</h2><p>${d.error||'Try again.'}</p></div>`;return;}document.querySelector('#pendingBadge').textContent=d.batches.length;list.innerHTML='';if(!d.batches.length){list.innerHTML='<div class="empty"><span>✓</span><h2>You are all caught up</h2><p>New uploads will appear here.</p></div>';return;}d.batches.forEach(batch=>{const node=document.querySelector('#batchTemplate').content.cloneNode(true),card=node.querySelector('.batch-card');card.dataset.id=batch.id;node.querySelector('.batch-title').textContent=batch.event_name||'Untitled upload';node.querySelector('.batch-meta').textContent=`${batch.uploader_name||'Team member'} · ${new Date(batch.created_at).toLocaleString()} · ${batch.photos.length} photo${batch.photos.length===1?'':'s'}`;node.querySelector('.batch-notes').textContent=batch.notes||'No notes added.';node.querySelector('.category-select').value=batch.suggested_category;const wrap=node.querySelector('.batch-photos');batch.photos.forEach(p=>{const img=document.createElement('img');img.src=p.url;img.alt=p.original_name;img.loading='lazy';wrap.append(img)});node.querySelector('.approve').addEventListener('click',()=>reviewBatch(card,'approved'));node.querySelector('.reject').addEventListener('click',()=>reviewBatch(card,'rejected'));list.append(node);});}
+async function reviewBatch(card,decision){const status=card.querySelector('.status'),buttons=card.querySelectorAll('button');buttons.forEach(b=>b.disabled=true);status.textContent=decision==='approved'?'Moving approved photos to Drive…':'Removing this upload…';try{const r=await fetch(`/api/review/${card.dataset.id}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({decision,category:card.querySelector('.category-select').value,gallery_visible:card.querySelector('.gallery-check').checked})}),d=await r.json();if(!r.ok)throw new Error(d.error||'Review failed');card.classList.add('done');setTimeout(()=>loadPending(true),450);}catch(err){status.className='status error';status.textContent=err.message;buttons.forEach(b=>b.disabled=false);}}
+document.querySelector('#refreshBtn').addEventListener('click',()=>loadPending());getSession();
 </script>
 </body>
 </html>
+
