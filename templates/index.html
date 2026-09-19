@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DAAC Photo Upload</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <main class="shell">
+    <section class="card">
+      <header class="hero">
+        <div class="logo-mark">DAAC</div>
+        <div><p class="eyebrow">Del Amo Action Committee</p><h1>Photo Upload</h1><p class="intro">Upload event and program photos directly to the correct DAAC Drive folder.</p></div>
+      </header>
+      <form id="uploadForm" enctype="multipart/form-data">
+        <label>Category <span>*</span></label>
+        <select name="category" required><option value="" selected disabled>Select a category</option>{% for category in categories %}<option value="{{ category }}">{{ category }}</option>{% endfor %}</select>
+        <label>Event or project name <small>optional</small></label>
+        <input name="event_name" type="text" placeholder="Example: September Open House">
+        <label>Photos <span>*</span></label>
+        <label class="drop" for="photos"><strong>Choose photos</strong><em>You can select multiple images at once</em><input id="photos" name="photos" type="file" accept="image/*" multiple required></label>
+        <div id="fileCount" class="file-count">No photos selected</div>
+        <label>Notes <small>optional</small></label>
+        <textarea name="notes" rows="3" placeholder="Anything the team should know about these photos"></textarea>
+        <button id="submitBtn" type="submit">Upload Photos</button>
+        <div id="status" class="status" aria-live="polite"></div>
+      </form>
+    </section>
+  </main>
+<script>
+const form=document.getElementById('uploadForm'), photos=document.getElementById('photos'), count=document.getElementById('fileCount'), status=document.getElementById('status'), btn=document.getElementById('submitBtn');
+photos.addEventListener('change',()=>{const n=photos.files.length;count.textContent=n?`${n} photo${n===1?'':'s'} selected`:'No photos selected';});
+form.addEventListener('submit',async(e)=>{e.preventDefault();status.className='status';status.textContent='Uploading photos…';btn.disabled=true;btn.textContent='Uploading…';try{const res=await fetch('/upload',{method:'POST',body:new FormData(form)});const data=await res.json();if(!res.ok||!data.ok)throw new Error(data.error||'Upload failed');status.className='status success';status.textContent=`Done! ${data.count} photo${data.count===1?'':'s'} uploaded directly to ${data.category}.`;form.reset();count.textContent='No photos selected';}catch(err){status.className='status error';status.textContent=err.message;}finally{btn.disabled=false;btn.textContent='Upload Photos';}});
+</script>
+</body>
+</html>
