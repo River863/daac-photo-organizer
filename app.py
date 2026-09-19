@@ -1,26 +1,18 @@
-import hashlib
 import io
 import json
 import os
 import secrets
+import uuid
 from datetime import datetime, timezone
-from functools import wraps
-from pathlib import Path
-from urllib.parse import quote
 
-import requests
-from flask import Flask, jsonify, render_template, request, session
+import streamlit as st
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseUpload
+from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
 
-app = Flask(__name__)
-app.config["MAX_CONTENT_LENGTH"] = 250 * 1024 * 1024
-app.secret_key = os.environ.get("FLASK_SECRET_KEY", secrets.token_hex(32))
-
+st.set_page_config(page_title="DAAC Photo Hub", page_icon="📷", layout="wide")
 SCOPES = ["https://www.googleapis.com/auth/drive"]
-BUCKET = "daac-photos"
-ALLOWED_TYPES = {"image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"}
+INBOX_FOLDER_ID = "1HFbufjJ10tvxcA0ri8SP3cm0rIg5gRD2"
 CATEGORY_FOLDERS = {
     "Open Houses": "1B7N_ypgTPFEInp-w_drbnxpub5hhVG1N",
     "Community Events": "1u-Obz83I88rFPtXuiuyEtzfcfzWsMbWH",
@@ -29,236 +21,232 @@ CATEGORY_FOLDERS = {
     "Social Media": "1HUSk5mwaDW4jAMp6sGYZbJ_2cd2y43mR",
     "Other / Needs Sorting": "1AjD8dOem0T601hbwMnnABuBMDzG5WNv5",
 }
+IMAGE_TYPES = ["jpg", "jpeg", "png", "webp", "heic", "heif"]
 
 
-def env(name):
+def secret_value(name):
     value = os.environ.get(name)
-    if not value:
-        raise RuntimeError(f"{name} is not configured.")
-    return value.rstrip("/") if name == "SUPABASE_URL" else value
+    if value:
+        return value
+    try:
+        return st.secrets[name]
+    except (KeyError, FileNotFoundError):
+        return None
 
 
-def supabase_headers(content_type="application/json"):
-    key = env("SUPABASE_SERVICE_ROLE_KEY")
-    return {"apikey": key, "Authorization": f"Bearer {key}", "Content-Type": content_type}
-
-
-def supabase_request(method, path, **kwargs):
-    headers = kwargs.pop("headers", {})
-    headers = {**supabase_headers(headers.pop("Content-Type", "application/json")), **headers}
-    response = requests.request(method, f"{env('SUPABASE_URL')}{path}", headers=headers, timeout=90, **kwargs)
-    if not response.ok:
-        raise RuntimeError(response.json().get("message", response.text) if response.content else "Supabase request failed")
-    return response
-
-
+@st.cache_resource
 def drive_client():
-    info = json.loads(env("GOOGLE_SERVICE_ACCOUNT_JSON"))
+    raw = secret_value("GOOGLE_SERVICE_ACCOUNT_JSON")
+    if not raw:
+        raise RuntimeError("Google Drive is not connected yet.")
+    info = json.loads(raw) if isinstance(raw, str) else dict(raw)
     credentials = service_account.Credentials.from_service_account_info(info, scopes=SCOPES)
     return build("drive", "v3", credentials=credentials, cache_discovery=False)
 
 
 def safe_filename(name):
-    clean = Path(name or "photo").name.replace("\x00", "")
-    return "".join(c for c in clean if c.isalnum() or c in "._- ").strip() or "photo"
+    name = (name or "photo").replace("\\", "/").split("/")[-1].replace("\x00", "")
+    return "".join(c for c in name if c.isalnum() or c in "._- ").strip() or "photo"
 
 
-def code_matches(value, setting):
-    expected = os.environ.get(setting, "")
-    return bool(expected) and secrets.compare_digest(value or "", expected)
+def file_bytes(file_id):
+    request = drive_client().files().get_media(fileId=file_id, supportsAllDrives=True)
+    buffer = io.BytesIO()
+    downloader = MediaIoBaseDownload(buffer, request)
+    done = False
+    while not done:
+        _, done = downloader.next_chunk()
+    return buffer.getvalue()
 
 
-def require_role(*roles):
-    def decorator(fn):
-        @wraps(fn)
-        def wrapped(*args, **kwargs):
-            if session.get("role") not in roles:
-                return jsonify({"ok": False, "error": "Enter the access code first."}), 401
-            return fn(*args, **kwargs)
-        return wrapped
-    return decorator
+@st.cache_data(ttl=180, show_spinner=False)
+def cached_file_bytes(file_id, modified_time):
+    del modified_time
+    return file_bytes(file_id)
 
 
-def public_photo_url(path):
-    return f"{env('SUPABASE_URL')}/storage/v1/object/public/{BUCKET}/{quote(path, safe='/')}"
+def list_folder(folder_id, limit=100):
+    result = drive_client().files().list(
+        q=f"'{folder_id}' in parents and trashed = false",
+        fields="files(id,name,mimeType,size,createdTime,modifiedTime,description,appProperties,parents)",
+        orderBy="createdTime desc", pageSize=limit, supportsAllDrives=True,
+        includeItemsFromAllDrives=True,
+    ).execute()
+    return [item for item in result.get("files", []) if item.get("mimeType", "").startswith("image/")]
 
 
-def signed_photo_url(path, expires_in=900):
-    response = supabase_request(
-        "POST",
-        f"/storage/v1/object/sign/{BUCKET}/{quote(path, safe='/')}",
-        json={"expiresIn": expires_in},
-    ).json()
-    signed = response.get("signedURL") or response.get("signedUrl")
-    if not signed:
-        raise RuntimeError("Could not create a secure photo preview.")
-    return f"{env('SUPABASE_URL')}/storage/v1{signed}" if signed.startswith("/") else signed
+def pending_batches():
+    batches = {}
+    for item in list_folder(INBOX_FOLDER_ID, 500):
+        props = item.get("appProperties") or {}
+        batch_id = props.get("batch_id") or item["id"]
+        batch = batches.setdefault(batch_id, {
+            "id": batch_id,
+            "event_name": props.get("event_name") or "Untitled upload",
+            "suggested_category": props.get("suggested_category") or "Other / Needs Sorting",
+            "uploader_name": props.get("uploader_name") or "DAAC team member",
+            "notes": item.get("description") or "", "created_at": item.get("createdTime"), "files": [],
+        })
+        batch["files"].append(item)
+    return sorted(batches.values(), key=lambda x: x.get("created_at") or "", reverse=True)
 
 
-def gallery_photos(limit=12):
-    response = supabase_request(
-        "GET",
-        f"/rest/v1/photos?select=id,original_name,storage_path,created_at&status=eq.approved&gallery_visible=eq.true&order=created_at.desc&limit={limit}",
-    )
-    return [{**row, "url": public_photo_url(row["storage_path"])} for row in response.json()]
+def upload_batch(files, category, event_name, uploader_name, notes):
+    batch_id = uuid.uuid4().hex
+    for uploaded in files:
+        name = safe_filename(uploaded.name)
+        media = MediaIoBaseUpload(io.BytesIO(uploaded.getvalue()), mimetype=uploaded.type or "application/octet-stream", resumable=True)
+        drive_client().files().create(
+            body={"name": name, "parents": [INBOX_FOLDER_ID], "description": notes,
+                  "appProperties": {"batch_id": batch_id, "suggested_category": category[:124],
+                                    "event_name": event_name[:124], "uploader_name": uploader_name[:124],
+                                    "uploaded_via": "DAAC Photo Hub"},
+                  "createdTime": datetime.now(timezone.utc).isoformat()},
+            media_body=media, fields="id,name", supportsAllDrives=True,
+        ).execute()
+    cached_file_bytes.clear()
 
 
-@app.get("/")
-def index():
+def approve_batch(batch, category, show_in_album):
+    for item in batch["files"]:
+        properties = dict(item.get("appProperties") or {})
+        properties.update({"approved_category": category[:124], "album_visible": str(show_in_album).lower(),
+                           "approved_at": datetime.now(timezone.utc).isoformat()[:124]})
+        drive_client().files().update(
+            fileId=item["id"], addParents=CATEGORY_FOLDERS[category],
+            removeParents=",".join(item.get("parents") or [INBOX_FOLDER_ID]),
+            body={"appProperties": properties}, fields="id,parents", supportsAllDrives=True,
+        ).execute()
+    cached_file_bytes.clear()
+
+
+def reject_batch(batch):
+    for item in batch["files"]:
+        drive_client().files().update(fileId=item["id"], body={"trashed": True}, supportsAllDrives=True).execute()
+    cached_file_bytes.clear()
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def album_files():
     photos = []
+    for category, folder_id in CATEGORY_FOLDERS.items():
+        for item in list_folder(folder_id, 40):
+            if (item.get("appProperties") or {}).get("album_visible") == "true":
+                item["category"] = category
+                photos.append(item)
+    return sorted(photos, key=lambda x: x.get("createdTime") or "", reverse=True)[:24]
+
+
+def unlock():
+    st.markdown("### Team access")
+    st.caption("Enter the DAAC upload code or organizer code.")
+    with st.form("access_form"):
+        code = st.text_input("Access code", type="password")
+        submitted = st.form_submit_button("Continue", use_container_width=True)
+    if submitted:
+        upload_code, admin_code = str(secret_value("UPLOAD_ACCESS_CODE") or ""), str(secret_value("ADMIN_ACCESS_CODE") or "")
+        if admin_code and secrets.compare_digest(code, admin_code):
+            st.session_state.role = "admin"; st.rerun()
+        if upload_code and secrets.compare_digest(code, upload_code):
+            st.session_state.role = "uploader"; st.rerun()
+        st.error("That access code is not valid.")
+
+
+def render_album():
+    st.markdown("# Community in action.")
+    st.write("Recent moments from DAAC events, programs, partnerships, and environmental work.")
     try:
-        photos = gallery_photos()
-    except Exception:
-        pass
-    return render_template("index.html", categories=CATEGORY_FOLDERS.keys(), gallery=photos)
+        photos = album_files()
+    except Exception as exc:
+        st.info(f"The photo album will appear after Google Drive is connected. ({exc})"); return
+    if not photos:
+        st.info("Photos approved for the homepage album will appear here."); return
+    columns = st.columns(3)
+    for index, photo in enumerate(photos):
+        try:
+            columns[index % 3].image(cached_file_bytes(photo["id"], photo.get("modifiedTime", "")), caption=photo["category"], use_container_width=True)
+        except Exception:
+            pass
 
 
-@app.post("/login")
-def login():
-    code = (request.get_json(silent=True) or {}).get("code", "")
-    if code_matches(code, "ADMIN_ACCESS_CODE"):
-        session["role"] = "admin"
-    elif code_matches(code, "UPLOAD_ACCESS_CODE"):
-        session["role"] = "uploader"
-    else:
-        return jsonify({"ok": False, "error": "That access code is not valid."}), 403
-    return jsonify({"ok": True, "role": session["role"]})
+def render_upload():
+    st.markdown("# Share photos with DAAC")
+    st.write("Photos are saved permanently in Google Drive. An organizer confirms the final folder before they leave Pending Approval.")
+    with st.form("upload_form", clear_on_submit=True):
+        col1, col2 = st.columns(2)
+        uploader = col1.text_input("Your name *")
+        event_name = col2.text_input("Event or project name *")
+        category = st.selectbox("Suggested category *", list(CATEGORY_FOLDERS))
+        files = st.file_uploader("Photos *", type=IMAGE_TYPES, accept_multiple_files=True)
+        notes = st.text_area("Notes (optional)")
+        submitted = st.form_submit_button("Send for approval", use_container_width=True)
+    if submitted:
+        if not uploader.strip() or not event_name.strip() or not files:
+            st.error("Add your name, the event or project name, and at least one photo."); return
+        too_large = [item.name for item in files if item.size > 25 * 1024 * 1024]
+        if too_large:
+            st.error("These photos exceed 25 MB: " + ", ".join(too_large)); return
+        try:
+            with st.spinner("Saving photos permanently to Google Drive…"):
+                upload_batch(files, category, event_name.strip(), uploader.strip(), notes.strip())
+            st.success(f"Received! {len(files)} photo{'s are' if len(files) != 1 else ' is'} waiting for approval.")
+        except Exception as exc:
+            st.error(f"The upload could not be completed: {exc}")
 
 
-@app.post("/logout")
-def logout():
-    session.clear()
-    return jsonify({"ok": True})
-
-
-@app.get("/session")
-def session_status():
-    return jsonify({"ok": True, "role": session.get("role")})
-
-
-@app.get("/health")
-def health():
-    required = ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "GOOGLE_SERVICE_ACCOUNT_JSON", "UPLOAD_ACCESS_CODE", "ADMIN_ACCESS_CODE", "FLASK_SECRET_KEY"]
-    return jsonify({"ok": True, "configured": {name: bool(os.environ.get(name)) for name in required}})
-
-
-@app.post("/upload")
-@require_role("uploader", "admin")
-def upload():
-    category = (request.form.get("category") or "").strip()
-    if category not in CATEGORY_FOLDERS:
-        return jsonify({"ok": False, "error": "Choose a valid category."}), 400
-    files = [item for item in request.files.getlist("photos") if item and item.filename]
-    if not files:
-        return jsonify({"ok": False, "error": "Choose at least one photo."}), 400
-
-    batch_payload = {
-        "event_name": (request.form.get("event_name") or "").strip() or None,
-        "suggested_category": category,
-        "notes": (request.form.get("notes") or "").strip() or None,
-        "uploader_name": (request.form.get("uploader_name") or "").strip() or None,
-        "uploader_email": (request.form.get("uploader_email") or "").strip() or None,
-        "status": "pending",
-    }
-    batch = supabase_request(
-        "POST", "/rest/v1/photo_batches", json=batch_payload,
-        headers={"Prefer": "return=representation"},
-    ).json()[0]
-
-    uploaded = []
+def render_review():
+    st.markdown("# Photos waiting for review")
+    st.write("Confirm the destination, choose whether the photos appear in the album, and move them into their permanent folder.")
     try:
-        for item in files:
-            mime = item.mimetype or "application/octet-stream"
-            if mime not in ALLOWED_TYPES:
-                raise ValueError(f"{item.filename} is not a supported image type.")
-            name = safe_filename(item.filename)
-            path = f"pending/{batch['id']}/{secrets.token_hex(5)}-{name}"
-            data = item.read()
-            supabase_request(
-                "POST", f"/storage/v1/object/{BUCKET}/{quote(path, safe='/')}", data=data,
-                headers={"Content-Type": mime, "x-upsert": "false"},
-            )
-            photo = supabase_request(
-                "POST", "/rest/v1/photos",
-                json={"batch_id": batch["id"], "storage_path": path, "original_name": name, "mime_type": mime, "file_size": len(data), "status": "pending", "gallery_visible": False},
-                headers={"Prefer": "return=representation"},
-            ).json()[0]
-            uploaded.append(photo)
-    except Exception:
-        for photo in uploaded:
-            try:
-                supabase_request("DELETE", f"/storage/v1/object/{BUCKET}/{quote(photo['storage_path'], safe='/')}")
-            except Exception:
-                pass
-        supabase_request("DELETE", f"/rest/v1/photo_batches?id=eq.{batch['id']}")
-        raise
-
-    return jsonify({"ok": True, "count": len(uploaded), "batch_id": batch["id"], "message": "Your photos were uploaded and are waiting for review."})
-
-
-@app.get("/api/pending")
-@require_role("admin")
-def pending():
-    batches = supabase_request(
-        "GET", "/rest/v1/photo_batches?select=*,photos(*)&status=eq.pending&order=created_at.desc"
-    ).json()
+        batches = pending_batches()
+    except Exception as exc:
+        st.error(f"The pending folder could not be opened: {exc}"); return
+    st.metric("Pending batches", len(batches))
+    if not batches:
+        st.success("You are all caught up."); return
     for batch in batches:
-        for photo in batch.get("photos", []):
-            photo["url"] = signed_photo_url(photo["storage_path"])
-    return jsonify({"ok": True, "batches": batches})
+        with st.container(border=True):
+            st.subheader(batch["event_name"])
+            st.caption(f"{batch['uploader_name']} · {len(batch['files'])} photo{'s' if len(batch['files']) != 1 else ''}")
+            if batch["notes"]: st.write(batch["notes"])
+            preview_columns = st.columns(min(4, len(batch["files"])))
+            for index, item in enumerate(batch["files"][:8]):
+                try:
+                    preview_columns[index % len(preview_columns)].image(cached_file_bytes(item["id"], item.get("modifiedTime", "")), caption=item["name"], use_container_width=True)
+                except Exception:
+                    preview_columns[index % len(preview_columns)].caption(item["name"])
+            categories = list(CATEGORY_FOLDERS)
+            default = categories.index(batch["suggested_category"]) if batch["suggested_category"] in categories else 5
+            category = st.selectbox("Permanent Drive folder", categories, index=default, key=f"cat_{batch['id']}")
+            show = st.checkbox("Show these photos in the homepage album", key=f"gallery_{batch['id']}")
+            approve_col, reject_col = st.columns(2)
+            if approve_col.button("Approve and move", key=f"approve_{batch['id']}", type="primary", use_container_width=True):
+                try:
+                    approve_batch(batch, category, show); album_files.clear(); st.rerun()
+                except Exception as exc: st.error(f"Could not approve this batch: {exc}")
+            if reject_col.button("Move to Drive trash", key=f"reject_{batch['id']}", use_container_width=True):
+                try:
+                    reject_batch(batch); st.rerun()
+                except Exception as exc: st.error(f"Could not reject this batch: {exc}")
 
 
-@app.post("/api/review/<batch_id>")
-@require_role("admin")
-def review(batch_id):
-    body = request.get_json(silent=True) or {}
-    decision = body.get("decision")
-    category = body.get("category")
-    gallery_visible = bool(body.get("gallery_visible"))
-    if decision not in {"approved", "rejected"}:
-        return jsonify({"ok": False, "error": "Choose approve or reject."}), 400
-    if decision == "approved" and category not in CATEGORY_FOLDERS:
-        return jsonify({"ok": False, "error": "Choose a destination category."}), 400
+st.markdown("""<style>
+[data-testid="stAppViewContainer"]{background:linear-gradient(180deg,#f5fbfb 0%,#fff 70%)}
+.block-container{max-width:1120px;padding-top:2rem;padding-bottom:5rem}h1{color:#123844;letter-spacing:-.035em}h2,h3{color:#176d73}
+[data-testid="stMetric"]{background:white;border:1px solid #cfe4e6;border-radius:16px;padding:16px}
+[data-testid="stForm"],[data-testid="stVerticalBlockBorderWrapper"]{background:white;border-color:#cfe4e6!important;border-radius:20px!important}
+.stButton>button,.stFormSubmitButton>button{border-radius:12px;font-weight:750}
+</style>""", unsafe_allow_html=True)
 
-    result = supabase_request("GET", f"/rest/v1/photo_batches?select=*,photos(*)&id=eq.{batch_id}&limit=1").json()
-    if not result:
-        return jsonify({"ok": False, "error": "Upload batch not found."}), 404
-    batch = result[0]
-    drive = drive_client() if decision == "approved" else None
+if "role" not in st.session_state: st.session_state.role = None
+with st.sidebar:
+    st.markdown("## DAAC Photo Hub")
+    page = st.radio("Go to", ["Album", "Upload"] + (["Review"] if st.session_state.role == "admin" else []), label_visibility="collapsed")
+    if st.session_state.role:
+        st.caption(f"Unlocked as {st.session_state.role}")
+        if st.button("Lock app", use_container_width=True): st.session_state.role = None; st.rerun()
 
-    for photo in batch.get("photos", []):
-        old_path = photo["storage_path"]
-        if decision == "approved":
-            raw = supabase_request("GET", f"/storage/v1/object/authenticated/{BUCKET}/{quote(old_path, safe='/')}").content
-            media = MediaIoBaseUpload(io.BytesIO(raw), mimetype=photo.get("mime_type") or "application/octet-stream", resumable=True)
-            drive.files().create(
-                body={"name": photo["original_name"], "parents": [CATEGORY_FOLDERS[category]], "description": f"DAAC approved upload | {batch.get('event_name') or 'Untitled event'}"},
-                media_body=media, fields="id,name", supportsAllDrives=True,
-            ).execute()
-            new_path = f"approved/{category.replace(' ', '-').replace('&', 'and').lower()}/{batch_id}/{Path(old_path).name}"
-            supabase_request("POST", "/storage/v1/object/move", json={"bucketId": BUCKET, "sourceKey": old_path, "destinationKey": new_path})
-            supabase_request("PATCH", f"/rest/v1/photos?id=eq.{photo['id']}", json={"storage_path": new_path, "status": "approved", "gallery_visible": gallery_visible})
-        else:
-            supabase_request("DELETE", f"/storage/v1/object/{BUCKET}/{quote(old_path, safe='/')}")
-            supabase_request("PATCH", f"/rest/v1/photos?id=eq.{photo['id']}", json={"status": "rejected", "gallery_visible": False})
-
-    supabase_request(
-        "PATCH", f"/rest/v1/photo_batches?id=eq.{batch_id}",
-        json={"status": decision, "approved_category": category if decision == "approved" else None, "reviewed_at": datetime.now(timezone.utc).isoformat()},
-    )
-    return jsonify({"ok": True, "status": decision})
-
-
-@app.errorhandler(413)
-def too_large(_):
-    return jsonify({"ok": False, "error": "That upload is too large. Choose fewer photos and try again."}), 413
-
-
-@app.errorhandler(Exception)
-def handle_error(error):
-    app.logger.exception(error)
-    return jsonify({"ok": False, "error": str(error) if app.debug else "Something went wrong. Try again or contact the organizer."}), 500
-
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", "8080")))
+if page == "Album": render_album()
+elif not st.session_state.role: unlock()
+elif page == "Upload": render_upload()
+elif page == "Review" and st.session_state.role == "admin": render_review()
