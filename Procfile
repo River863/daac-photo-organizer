@@ -1,1 +1,1 @@
-web: gunicorn app:app --bind 0.0.0.0:$PORT --timeout 300
+web: streamlit run app.py --server.port=$PORT --server.address=0.0.0.0
