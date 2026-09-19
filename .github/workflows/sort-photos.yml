@@ -1,0 +1,50 @@
+name: DAAC Photo Organizer
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/5 * * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: daac-photo-organizer
+  cancel-in-progress: false
+
+jobs:
+  sort-photos:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Sort new photos
+        env:
+          JOTFORM_API_KEY: ${{ secrets.JOTFORM_API_KEY }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+        run: python sort_photos.py
+
+      - name: Save processed submission state
+        if: always()
+        run: |
+          if git diff --quiet -- state/processed.json; then
+            echo "No state changes to save."
+            exit 0
+          fi
+          git config user.name "DAAC Photo Organizer"
+          git config user.email "actions@users.noreply.github.com"
+          git add state/processed.json
+          git commit -m "Update processed Jotform submissions"
+          git push
