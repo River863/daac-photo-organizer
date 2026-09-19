@@ -1,27 +1,30 @@
-# DAAC Photo Organizer
+# DAAC Photo Hub
 
-Automatically sorts photos uploaded through the DAAC Jotform into the correct 2026 Google Drive category folder.
+A code-protected photo intake and approval website for the Del Amo Action Committee.
 
-## Routing
+## What it does
 
-- Open Houses
-- Community Events
-- Environmental & Community Projects
-- Outreach & Partnerships
-- Social Media
-- Other / Needs Sorting
+- DAAC team members upload event and program photos with an upload access code.
+- Photos wait in a private pending area instead of going straight into Drive.
+- An organizer signs in with a separate admin code, reviews each batch, corrects its category, and approves or rejects it.
+- Approved photos are copied into the selected Google Drive folder.
+- Organizers can choose which approved photos appear in the homepage album.
 
-## How it works
+## Required environment variables
 
-A scheduled GitHub Actions workflow reads recent submissions from Jotform, matches each submission's uploaded photo filenames to files in the Google Drive intake folder, and moves each file to the configured category folder. Successfully processed Jotform submission IDs are recorded in `state/processed.json` so reruns are safe.
+- `FLASK_SECRET_KEY`
+- `UPLOAD_ACCESS_CODE`
+- `ADMIN_ACCESS_CODE`
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `GOOGLE_SERVICE_ACCOUNT_JSON`
 
-## Required GitHub Actions secrets
+Never commit these values to GitHub.
 
-- `JOTFORM_API_KEY` — Jotform API key with permission to read submissions.
-- `GOOGLE_SERVICE_ACCOUNT_JSON` — complete Google service-account JSON credential. The service account must have Editor access to the DAAC Photo Upload inbox and destination folders (or their shared parent folder).
+## Run locally
 
-Never commit either credential to this repository.
+```bash
+python -m pip install -r requirements.txt
+flask --app app run --debug
+```
 
-## Manual test
-
-After the two secrets are configured, open **Actions → DAAC Photo Organizer → Run workflow**. The workflow also runs automatically every 5 minutes.
