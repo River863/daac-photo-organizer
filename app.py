@@ -83,6 +83,18 @@ def public_photo_url(path):
     return f"{env('SUPABASE_URL')}/storage/v1/object/public/{BUCKET}/{quote(path, safe='/')}"
 
 
+def signed_photo_url(path, expires_in=900):
+    response = supabase_request(
+        "POST",
+        f"/storage/v1/object/sign/{BUCKET}/{quote(path, safe='/')}",
+        json={"expiresIn": expires_in},
+    ).json()
+    signed = response.get("signedURL") or response.get("signedUrl")
+    if not signed:
+        raise RuntimeError("Could not create a secure photo preview.")
+    return f"{env('SUPABASE_URL')}/storage/v1{signed}" if signed.startswith("/") else signed
+
+
 def gallery_photos(limit=12):
     response = supabase_request(
         "GET",
@@ -192,7 +204,7 @@ def pending():
     ).json()
     for batch in batches:
         for photo in batch.get("photos", []):
-            photo["url"] = public_photo_url(photo["storage_path"])
+            photo["url"] = signed_photo_url(photo["storage_path"])
     return jsonify({"ok": True, "batches": batches})
 
 
@@ -250,4 +262,3 @@ def handle_error(error):
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", "8080")))
-
