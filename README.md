@@ -1,30 +1,31 @@
 # DAAC Photo Hub
 
-A code-protected photo intake and approval website for the Del Amo Action Committee.
+A free Streamlit photo intake and approval website for the Del Amo Action Committee.
 
-## What it does
+## Permanent storage flow
 
-- DAAC team members upload event and program photos with an upload access code.
-- Photos wait in a private pending area instead of going straight into Drive.
-- An organizer signs in with a separate admin code, reviews each batch, corrects its category, and approves or rejects it.
-- Approved photos are copied into the selected Google Drive folder.
-- Organizers can choose which approved photos appear in the homepage album.
+1. Team members upload through the code-protected Streamlit website.
+2. The original files are stored permanently in the Google Drive `Pending Approval` folder.
+3. An organizer reviews each batch and moves the same files into the final Drive folder.
+4. Photos selected for the album are displayed directly from Google Drive.
 
-## Required environment variables
+There is no Supabase, Jotform, Dropbox, duplicate file store, or paid hosting requirement.
 
-- `FLASK_SECRET_KEY`
-- `UPLOAD_ACCESS_CODE`
-- `ADMIN_ACCESS_CODE`
-- `SUPABASE_URL`
-- `SUPABASE_SERVICE_ROLE_KEY`
-- `GOOGLE_SERVICE_ACCOUNT_JSON`
+## Streamlit secrets
 
-Never commit these values to GitHub.
+Add these in **Streamlit Community Cloud → App settings → Secrets**:
+
+```toml
+UPLOAD_ACCESS_CODE = "choose-an-upload-code"
+ADMIN_ACCESS_CODE = "choose-a-different-admin-code"
+GOOGLE_SERVICE_ACCOUNT_JSON = '''{"type":"service_account","project_id":"..."}'''
+```
+
+The Google service account must have Editor access to the Pending Approval folder and every destination folder.
 
 ## Run locally
 
 ```bash
 python -m pip install -r requirements.txt
-flask --app app run --debug
+streamlit run app.py
 ```
-
