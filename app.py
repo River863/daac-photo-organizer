@@ -57,7 +57,9 @@ def render_album():
     for album in albums:
         with st.expander(f"{album['name']}  ·  {album['count']} photos"):
             st.caption(album.get("category", ""))
-            \n            if album.get("url"):\n                st.link_button("Open this full album and download photos", album["url"], use_container_width=True)
+            
+            if album.get("url"):
+                st.link_button("Open this full album and download photos", album["url"], use_container_width=True)
             photos = [p for p in album.get("photos", []) if p.get("thumbnail")]
             if not photos: st.caption("These photos do not have browser previews yet.")
             else:
