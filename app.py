@@ -48,7 +48,7 @@ def render_album():
     featured = [p for p in gallery.get("featured", []) if p.get("thumbnail")]
     st.markdown("## Latest from DAAC")
     if featured:
-        cards = "".join("<a href='{0}' target='_blank'><figure><img src='data:image/jpeg;base64,{1}'><figcaption>Open / download: {2}</figcaption></figure></a>".format(p["url"], p["thumbnail"], p.get("albumName", "DAAC")) for p in featured)
+        cards = "".join("<a href='{0}' target='_blank'><figure><img src='data:image/jpeg;base64,{1}'><figcaption>Open / download: {2}</figcaption></figure></a>".format(p.get("url", "https://drive.google.com/file/d/{}/view".format(p["id"])), p["thumbnail"], p.get("albumName", "DAAC")) for p in featured)
         st.markdown(f"<div class='photo-strip'><div class='photo-track'>{cards}{cards}</div></div>", unsafe_allow_html=True)
     else: st.info("Photos will appear here once they are added to a DAAC event album.")
     st.markdown("## Explore photo albums")
@@ -57,7 +57,7 @@ def render_album():
     for album in albums:
         with st.expander(f"{album['name']}  ·  {album['count']} photos"):
             st.caption(album.get("category", ""))
-            st.link_button("Open this full album and download photos", album["url"], use_container_width=True)
+            \n            if album.get("url"):\n                st.link_button("Open this full album and download photos", album["url"], use_container_width=True)
             photos = [p for p in album.get("photos", []) if p.get("thumbnail")]
             if not photos: st.caption("These photos do not have browser previews yet.")
             else:
