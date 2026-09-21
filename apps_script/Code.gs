@@ -1,4 +1,4 @@
-const ACCESS_TOKEN = 'DAACphotoBridge_7pH3mK9xQ2wL6z';
+const ACCESS_TOKEN = 'PASTE_YOUR_APPS_SCRIPT_TOKEN_HERE';
 const PENDING_FOLDER_ID = '1HFbufjJ10tvxcA0ri8SP3cm0rIg5gRD2';
 const CATEGORY_FOLDERS = {
   'Open Houses': '1B7N_ypgTPFEInp-w_drbnxpub5hhVG1N',
