@@ -67,7 +67,7 @@ def render_album():
                 for i, photo in enumerate(photos):
                     column = columns[i % len(columns)]
                     column.image(image_bytes(photo), use_container_width=True)
-                    column.link_button("Open / download full photo", photo["url"], use_container_width=True, key=f"open_{photo['id']}")
+                    column.link_button("Open / download full photo", photo.get("url", "https://drive.google.com/file/d/{}/view".format(photo["id"])), use_container_width=True, key=f"open_{photo['id']}")
 
 def render_upload():
     st.title("Share photos with DAAC")
