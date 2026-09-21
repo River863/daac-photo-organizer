@@ -120,7 +120,7 @@ st.markdown("""<style>
 if "role" not in st.session_state: st.session_state.role = None
 with st.sidebar:
     st.header("DAAC Photo Hub")
-    pages = ["Album", "Upload"] + (["Review"] if st.session_state.role == "admin" else [])
+    pages = ["Album", "Upload", "Organizer review"]
     page = st.radio("Go to", pages, label_visibility="collapsed", key="page")
     if st.session_state.role:
         st.caption(f"Unlocked as {st.session_state.role}")
@@ -130,7 +130,7 @@ if page == "Album":
     render_album()
 elif page == "Upload":
     render_upload()
-elif st.session_state.role == "admin":
+elif page == "Organizer review" and st.session_state.role == "admin":
     render_review()
 else:
     unlock()
