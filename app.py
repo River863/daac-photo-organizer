@@ -108,7 +108,7 @@ def render_review():
             if preview_photos:
                 previews = st.columns(min(4, len(preview_photos)))
                 for i, photo in enumerate(preview_photos):
-                    previews[i % len(previews)].image(image_bytes(photo), caption=photo["name"], use_container_width=True)
+                    previews[i % len(previews)].image(image_bytes(photo), caption=photo["name"], width=160)
             category = st.selectbox("Category", CATEGORIES, key=f"cat_{batch['id']}")
             approve, reject = st.columns(2)
             if approve.button("Approve into event album", type="primary", use_container_width=True, key=f"approve_{batch['id']}"):
