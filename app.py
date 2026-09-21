@@ -126,7 +126,11 @@ with st.sidebar:
         st.caption(f"Unlocked as {st.session_state.role}")
         if st.button("Lock app", use_container_width=True):
             st.session_state.role = None; st.rerun()
-if page == "Album": render_album()
-elif not st.session_state.role: unlock()
-elif page == "Upload": render_upload()
-else: render_review()
+if page == "Album":
+    render_album()
+elif page == "Upload":
+    render_upload()
+elif st.session_state.role == "admin":
+    render_review()
+else:
+    unlock()
