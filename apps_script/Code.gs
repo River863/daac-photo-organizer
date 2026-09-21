@@ -116,7 +116,7 @@ function reject(data) {
 function photoRecord(file, category, albumName) {
   return {
     id: file.getId(), category: category, albumName: albumName,
-    createdAt: file.getDateCreated().toISOString(), thumbnail: thumbnail(file)
+    createdAt: file.getDateCreated().toISOString(), thumbnail: thumbnail(file), url: file.getUrl()
   };
 }
 
@@ -134,12 +134,12 @@ function gallery() {
   Object.keys(CATEGORY_FOLDERS).forEach(function(category) {
     const folder = DriveApp.getFolderById(CATEGORY_FOLDERS[category]);
     const directPhotos = filesInFolder(folder, category, category, 8);
-    if (directPhotos.length) albums.push({name: category, category: category, count: directPhotos.length, photos: directPhotos});
+    if (directPhotos.length) albums.push({name: category, category: category, count: directPhotos.length, photos: directPhotos, url: folder.getUrl()});
     const childFolders = folder.getFolders();
     while (childFolders.hasNext()) {
       const child = childFolders.next();
       const photos = filesInFolder(child, category, child.getName(), 8);
-      if (photos.length) albums.push({name: child.getName(), category: category, count: photos.length, photos: photos});
+      if (photos.length) albums.push({name: child.getName(), category: category, count: photos.length, photos: photos, url: child.getUrl()});
     }
   });
   albums.forEach(function(album) { album.photos.forEach(function(photo) { featured.push(photo); }); });
