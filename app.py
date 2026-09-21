@@ -1,141 +1,271 @@
-import base64
-import os
-import secrets
-import requests
-import streamlit as st
+const ACCESS_TOKEN = 'DAACphotoBridge_7pH3mK9xQ2wL6z';
 
-st.set_page_config(page_title="DAAC Photo Hub", page_icon="📷", layout="wide")
-CATEGORIES = ["Open Houses", "Community Events", "Environmental & Community Projects", "Outreach & Partnerships", "Social Media", "Other / Needs Sorting"]
-IMAGE_TYPES = ["jpg", "jpeg", "png", "webp", "heic", "heif"]
+const PENDING_FOLDER_ID = '1HFbufjJ10tvxcA0ri8SP3cm0rIg5gRD2';
 
-def setting(name): return os.environ.get(name) or st.secrets.get(name)
+const CATEGORY_FOLDERS = {
+  'Open Houses': '1B7N_ypgTPFEInp-w_drbnxpub5hhVG1N',
+  'Community Events': '1u-Obz83I88rFPtXuiuyEtzfcfzWsMbWH',
+  'Environmental & Community Projects': '1yJl5Lwsj9EqLy1DC_g1F1r9XbPISbiDr',
+  'Outreach & Partnerships': '1G2n-8p4cdOYSyJ8-x6dQWX_NY9PirYEn',
+  'Social Media': '1HUSk5mwaDW4jAMp6sGYZbJ_2cd2y43mR',
+  'Other / Needs Sorting': '1AjD8dOem0T601hbwMnnABuBMDzG5WNv5'
+};
 
-def app_script(action, **payload):
-    url, token = setting("APPS_SCRIPT_URL"), setting("APPS_SCRIPT_TOKEN")
-    if not url or not token: raise RuntimeError("The Google Drive connection has not been configured yet.")
-    response = requests.post(url, json={"token": token, "action": action, **payload}, timeout=90)
-    response.raise_for_status()
-    data = response.json()
-    if not data.get("ok"): raise RuntimeError(data.get("error", "Google Drive could not complete that request."))
-    return data
+function doGet() {
+  return reply({ ok: true, message: 'DAAC Photo Hub is ready.' });
+}
 
-def matches(value, name):
-    expected = str(setting(name) or "")
-    return bool(expected) and secrets.compare_digest(value or "", expected)
+function doPost(e) {
+  try {
+    const data = JSON.parse(e.postData.contents || '{}');
 
-def image_bytes(photo): return base64.b64decode(photo["thumbnail"]) if photo.get("thumbnail") else None
+    if (data.token !== ACCESS_TOKEN) {
+      throw new Error('Access denied.');
+    }
 
-def unlock():
-    st.markdown("### Team access")
-    with st.form("access_form"):
-        code = st.text_input("Access code", type="password")
-        submit = st.form_submit_button("Continue", use_container_width=True)
-    if submit:
-        if matches(code, "ADMIN_ACCESS_CODE"):
-            st.session_state.role = "admin"; st.rerun()
-        if matches(code, "UPLOAD_ACCESS_CODE"):
-            st.session_state.role = "uploader"; st.rerun()
-        st.error("That access code is not valid.")
+    if (data.action === 'upload') return reply(upload(data));
+    if (data.action === 'pending') return reply({ ok: true, batches: pending() });
+    if (data.action === 'approve') return reply(approve(data));
+    if (data.action === 'reject') return reply(reject(data));
+    if (data.action === 'gallery') return reply({ ok: true, ...gallery() });
 
-def go_upload():
-    st.session_state.page = "Upload"
+    throw new Error('Unknown request.');
+  } catch (error) {
+    return reply({ ok: false, error: error.message });
+  }
+}
 
+function reply(value) {
+  return ContentService
+    .createTextOutput(JSON.stringify(value))
+    .setMimeType(ContentService.MimeType.JSON);
+}
 
-def render_album():
-    st.title("DAAC in the community")
-    st.caption("A living record of DAAC’s events, projects, and partnerships.")
-    st.button("📷  Upload photos to DAAC", type="primary", use_container_width=True, on_click=go_upload)
-    try: gallery = app_script("gallery")
-    except Exception as exc:
-        st.error(str(exc)); return
-    featured = [p for p in gallery.get("featured", []) if p.get("thumbnail")]
-    st.markdown("## Latest from DAAC")
-    if featured:
-        cards = "".join("<a href='{0}' target='_blank'><figure><img src='data:image/jpeg;base64,{1}'><figcaption>Open / download: {2}</figcaption></figure></a>".format(p.get("url", "https://drive.google.com/file/d/{}/view".format(p["id"])), p["thumbnail"], p.get("albumName", "DAAC")) for p in featured)
-        st.markdown(f"<div class='photo-strip'><div class='photo-track'>{cards}{cards}</div></div>", unsafe_allow_html=True)
-    else: st.info("Photos will appear here once they are added to a DAAC event album.")
-    st.markdown("## Explore photo albums")
-    albums = gallery.get("albums", [])
-    if not albums: st.info("No photo albums have been added yet.")
-    for album in albums:
-        with st.expander(f"{album['name']}  ·  {album['count']} photos"):
-            st.caption(album.get("category", ""))
-            
-            if album.get("url"):
-                st.link_button("Open this full album and download photos", album["url"], use_container_width=True)
-            photos = [p for p in album.get("photos", []) if p.get("thumbnail")]
-            if not photos: st.caption("These photos do not have browser previews yet.")
-            else:
-                columns = st.columns(min(4, len(photos)))
-                for i, photo in enumerate(photos):
-                    column = columns[i % len(columns)]
-                    column.image(image_bytes(photo), use_container_width=True)
-                    column.link_button("Open / download full photo", photo.get("url", "https://drive.google.com/file/d/{}/view".format(photo["id"])), use_container_width=True)
+function metadata(file) {
+  try {
+    return JSON.parse(file.getDescription() || '{}');
+  } catch (error) {
+    return {};
+  }
+}
 
-def render_upload():
-    st.title("Share photos with DAAC")
-    st.write("Every upload goes directly into permanent Google Drive storage. An organizer chooses its final event album.")
-    with st.form("upload_form", clear_on_submit=True):
-        left, right = st.columns(2)
-        uploader = left.text_input("Your name *"); event = right.text_input("Event or project name *")
-        category = st.selectbox("Suggested category *", CATEGORIES)
-        photos = st.file_uploader("Photos *", type=IMAGE_TYPES, accept_multiple_files=True)
-        notes = st.text_area("Notes (optional)")
-        submit = st.form_submit_button("Send for approval", use_container_width=True)
-    if not submit: return
-    if not uploader.strip() or not event.strip() or not photos:
-        st.error("Add your name, the event or project name, and at least one photo."); return
-    if any(photo.size > 15 * 1024 * 1024 for photo in photos):
-        st.error("Each photo must be 15 MB or smaller."); return
-    files = [{"name": p.name, "mimeType": p.type or "image/jpeg", "base64": base64.b64encode(p.getvalue()).decode("ascii")} for p in photos]
-    try:
-        with st.spinner("Saving photos to Google Drive…"):
-            app_script("upload", uploader=uploader.strip(), eventName=event.strip(), category=category, notes=notes.strip(), files=files)
-        st.success("Received! The photos are waiting for approval.")
-    except Exception as exc: st.error(f"Upload could not be completed: {exc}")
+function thumbnail(file) {
+  const image = file.getThumbnail();
+  return image ? Utilities.base64Encode(image.getBytes()) : null;
+}
 
-def render_review():
-    st.title("Photos waiting for review")
-    st.caption("Approving a batch creates or uses an event album inside the selected category.")
-    try: batches = app_script("pending").get("batches", [])
-    except Exception as exc: st.error(str(exc)); return
-    if not batches: st.success("You are all caught up."); return
-    for batch in batches:
-        with st.container(border=True):
-            st.subheader(batch.get("eventName") or "Untitled upload")
-            st.caption(f"{batch.get('uploader') or 'DAAC team member'} · {len(batch['files'])} photo(s)")
-            preview_photos = [p for p in batch["files"] if p.get("thumbnail")]
-            if preview_photos:
-                previews = st.columns(min(4, len(preview_photos)))
-                for i, photo in enumerate(preview_photos):
-                    previews[i % len(previews)].image(image_bytes(photo), caption=photo["name"], width=160)
-            category = st.selectbox("Category", CATEGORIES, key=f"cat_{batch['id']}")
-            approve, reject = st.columns(2)
-            if approve.button("Approve into event album", type="primary", use_container_width=True, key=f"approve_{batch['id']}"):
-                try: app_script("approve", batchId=batch["id"], category=category); st.rerun()
-                except Exception as exc: st.error(str(exc))
-            if reject.button("Move to Drive trash", use_container_width=True, key=f"reject_{batch['id']}"):
-                try: app_script("reject", batchId=batch["id"]); st.rerun()
-                except Exception as exc: st.error(str(exc))
+function upload(data) {
+  if (!data.files || !data.files.length) {
+    throw new Error('No photos received.');
+  }
 
-st.markdown("""<style>
-[data-testid="stAppViewContainer"]{background:linear-gradient(180deg,#eef9f8 0%,#fff 65%)} .block-container{max-width:1120px;padding-top:2rem;padding-bottom:5rem} h1,h2,h3{color:#176d73}.stButton>button,.stFormSubmitButton>button{border-radius:12px;font-weight:750}.photo-strip{overflow:hidden;padding:5px 0 18px;mask-image:linear-gradient(90deg,transparent,#000 4%,#000 96%,transparent)}.photo-track{display:flex;gap:16px;width:max-content;animation:slide 38s linear infinite}.photo-strip:hover .photo-track{animation-play-state:paused}.photo-strip a{text-decoration:none}.photo-strip figure{width:290px;margin:0;border-radius:18px;overflow:hidden;background:#fff;box-shadow:0 8px 20px #176d7320}.photo-strip img{width:290px;height:220px;object-fit:cover;display:block}.photo-strip figcaption{padding:10px 13px;color:#176d73;font-weight:700;font-size:.9rem}@keyframes slide{to{transform:translateX(-50%)}}
-</style>""", unsafe_allow_html=True)
+  const batchId = Utilities.getUuid();
+  const folder = DriveApp.getFolderById(PENDING_FOLDER_ID);
 
-if "role" not in st.session_state: st.session_state.role = None
-with st.sidebar:
-    st.header("DAAC Photo Hub")
-    pages = ["Album", "Upload", "Organizer review"]
-    page = st.radio("Go to", pages, label_visibility="collapsed", key="page")
-    if st.session_state.role:
-        st.caption(f"Unlocked as {st.session_state.role}")
-        if st.button("Lock app", use_container_width=True):
-            st.session_state.role = None; st.rerun()
-if page == "Album":
-    render_album()
-elif page == "Upload":
-    render_upload()
-elif page == "Organizer review" and st.session_state.role == "admin":
-    render_review()
-else:
-    unlock()
+  data.files.forEach(function(item) {
+    const file = folder.createFile(
+      Utilities.newBlob(
+        Utilities.base64Decode(item.base64),
+        item.mimeType || 'image/jpeg',
+        item.name
+      )
+    );
+
+    file.setDescription(JSON.stringify({
+      batchId: batchId,
+      uploader: data.uploader || '',
+      eventName: data.eventName || '',
+      suggestedCategory: data.category || 'Other / Needs Sorting',
+      notes: data.notes || '',
+      status: 'pending',
+      createdAt: new Date().toISOString()
+    }));
+  });
+
+  return { ok: true, batchId: batchId };
+}
+
+function pending() {
+  const groups = {};
+  const files = DriveApp.getFolderById(PENDING_FOLDER_ID).getFiles();
+
+  while (files.hasNext()) {
+    const file = files.next();
+    const meta = metadata(file);
+    const id = meta.batchId || file.getId();
+
+    if (!groups[id]) {
+      groups[id] = {
+        id: id,
+        uploader: meta.uploader || '',
+        eventName: meta.eventName || '',
+        suggestedCategory: meta.suggestedCategory || 'Other / Needs Sorting',
+        notes: meta.notes || '',
+        createdAt: meta.createdAt || '',
+        files: []
+      };
+    }
+
+    groups[id].files.push({
+      id: file.getId(),
+      name: file.getName(),
+      thumbnail: thumbnail(file)
+    });
+  }
+
+  return Object.keys(groups)
+    .map(function(id) {
+      return groups[id];
+    })
+    .sort(function(a, b) {
+      return (b.createdAt || '').localeCompare(a.createdAt || '');
+    });
+}
+
+function batchFiles(batchId) {
+  const matches = [];
+  const files = DriveApp.getFolderById(PENDING_FOLDER_ID).getFiles();
+
+  while (files.hasNext()) {
+    const file = files.next();
+
+    if (metadata(file).batchId === batchId) {
+      matches.push(file);
+    }
+  }
+
+  return matches;
+}
+
+function eventFolder(category, eventName) {
+  const parent = DriveApp.getFolderById(CATEGORY_FOLDERS[category]);
+  const name = (eventName || 'Untitled event').trim();
+  const folders = parent.getFoldersByName(name);
+
+  return folders.hasNext() ? folders.next() : parent.createFolder(name);
+}
+
+function approve(data) {
+  if (!CATEGORY_FOLDERS[data.category]) {
+    throw new Error('Choose a valid category.');
+  }
+
+  const files = batchFiles(data.batchId);
+
+  if (!files.length) {
+    throw new Error('That pending batch was not found.');
+  }
+
+  const target = eventFolder(data.category, metadata(files[0]).eventName);
+  const pendingFolder = DriveApp.getFolderById(PENDING_FOLDER_ID);
+
+  files.forEach(function(file) {
+    const meta = metadata(file);
+    meta.status = 'approved';
+    meta.approvedCategory = data.category;
+    meta.approvedAt = new Date().toISOString();
+
+    file.setDescription(JSON.stringify(meta));
+    target.addFile(file);
+    pendingFolder.removeFile(file);
+  });
+
+  return { ok: true };
+}
+
+function reject(data) {
+  const files = batchFiles(data.batchId);
+
+  if (!files.length) {
+    throw new Error('That pending batch was not found.');
+  }
+
+  files.forEach(function(file) {
+    file.setTrashed(true);
+  });
+
+  return { ok: true };
+}
+
+function photoRecord(file, category, albumName) {
+  return {
+    id: file.getId(),
+    category: category,
+    albumName: albumName,
+    createdAt: file.getDateCreated().toISOString(),
+    thumbnail: thumbnail(file),
+    url: file.getUrl()
+  };
+}
+
+function filesInFolder(folder, category, albumName, limit) {
+  const photos = [];
+  const files = folder.getFiles();
+
+  while (files.hasNext() && photos.length < limit) {
+    const file = files.next();
+
+    if (file.getMimeType().indexOf('image/') === 0) {
+      photos.push(photoRecord(file, category, albumName));
+    }
+  }
+
+  return photos;
+}
+
+function gallery() {
+  const albums = [];
+  const featured = [];
+
+  Object.keys(CATEGORY_FOLDERS).forEach(function(category) {
+    const folder = DriveApp.getFolderById(CATEGORY_FOLDERS[category]);
+
+    const directPhotos = filesInFolder(folder, category, category, 8);
+
+    if (directPhotos.length) {
+      albums.push({
+        name: category,
+        category: category,
+        count: directPhotos.length,
+        photos: directPhotos,
+        url: folder.getUrl()
+      });
+    }
+
+    const childFolders = folder.getFolders();
+
+    while (childFolders.hasNext()) {
+      const child = childFolders.next();
+      const photos = filesInFolder(child, category, child.getName(), 8);
+
+      if (photos.length) {
+        albums.push({
+          name: child.getName(),
+          category: category,
+          count: photos.length,
+          photos: photos,
+          url: child.getUrl()
+        });
+      }
+    }
+  });
+
+  albums.forEach(function(album) {
+    album.photos.forEach(function(photo) {
+      featured.push(photo);
+    });
+  });
+
+  featured.sort(function(a, b) {
+    return b.createdAt.localeCompare(a.createdAt);
+  });
+
+  albums.sort(function(a, b) {
+    return b.photos[0].createdAt.localeCompare(a.photos[0].createdAt);
+  });
+
+  return {
+    featured: featured.slice(0, 8),
+    albums: albums
+  };
+}
