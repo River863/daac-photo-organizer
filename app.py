@@ -37,11 +37,14 @@ def unlock():
             st.session_state.role = "uploader"; st.rerun()
         st.error("That access code is not valid.")
 
+def go_upload():
+    st.session_state.page = "Upload"
+
+
 def render_album():
     st.title("DAAC in the community")
     st.caption("A living record of DAAC’s events, projects, and partnerships.")
-    if st.button("📷  Upload photos to DAAC", type="primary", use_container_width=True):
-        st.session_state.page = "Upload"; st.rerun()
+    st.button("📷  Upload photos to DAAC", type="primary", use_container_width=True, on_click=go_upload)
     try: gallery = app_script("gallery")
     except Exception as exc:
         st.error(str(exc)); return
