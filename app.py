@@ -29,7 +29,7 @@ def app_script(action, **payload):
     response = requests.post(
         url,
         json={"token": token, "action": action, **payload},
-        timeout=90,
+        timeout=180,
     )
     response.raise_for_status()
 
