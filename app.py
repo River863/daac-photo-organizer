@@ -67,8 +67,21 @@ def unlock():
 
 
 def render_album():
-    st.title("DAAC in the community")
+    st.title("Welcome to DAAC Photo Hub")
     st.caption("A living record of DAAC’s events, projects, and partnerships.")
+
+    st.markdown(
+        """
+        <div class="welcome-card">
+            <div class="welcome-icon">📷</div>
+            <div>
+                <div class="welcome-title">Welcome to DAAC Photo Hub</div>
+                <div class="welcome-text">Loading the latest DAAC photos and building your carousel…</div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
     st.button(
         "📷  Upload photos to DAAC",
@@ -78,9 +91,13 @@ def render_album():
     )
 
     try:
-        gallery = app_script("gallery")
+        with st.status("Loading DAAC photos…", expanded=True) as status:
+            st.write("Connecting to the DAAC photo library…")
+            gallery = app_script("gallery")
+            st.write("Loading the latest photos…")
+            status.update(label="DAAC photos loaded", state="complete", expanded=False)
     except Exception as exc:
-        st.error(str(exc))
+        st.error(f"We couldn't load the DAAC photo library: {exc}")
         return
 
     featured = [
@@ -221,7 +238,8 @@ def render_review():
             )
 
             preview_photos = [
-                photo for photo in batch["files"] if photo.get("thumbnail")
+                photo for photo in batch["files"]
+                if photo.get("thumbnail") or photo.get("thumbnailUrl")
             ]
 
             if preview_photos:
@@ -290,6 +308,33 @@ st.markdown(
     .stButton > button, .stFormSubmitButton > button {
         border-radius: 12px;
         font-weight: 750;
+    }
+
+    .welcome-card {
+        display: flex;
+        align-items: center;
+        gap: 18px;
+        margin: 8px 0 22px;
+        padding: 20px 22px;
+        border-radius: 18px;
+        background: white;
+        box-shadow: 0 8px 24px #176d7320;
+        border: 1px solid #176d7318;
+    }
+
+    .welcome-icon {
+        font-size: 2.5rem;
+    }
+
+    .welcome-title {
+        color: #176d73;
+        font-size: 1.25rem;
+        font-weight: 800;
+    }
+
+    .welcome-text {
+        color: #4f6466;
+        margin-top: 3px;
     }
 
     .photo-strip {
