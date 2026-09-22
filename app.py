@@ -41,6 +41,11 @@ def app_script(action, **payload):
     return data
 
 
+@st.cache_data(ttl=300, show_spinner=False)
+def load_gallery():
+    return app_script("gallery")
+
+
 def image_source(photo):
     if photo.get("thumbnail"):
         return "data:image/jpeg;base64," + photo["thumbnail"]
@@ -193,14 +198,26 @@ def render_album():
             expanded=True
         ) as status:
 
+            st.markdown(
+                """
+                <div class="loading-card">
+                    <div class="loading-logo">📷</div>
+                    <div class="loading-title">Loading the DAAC Photo Album</div>
+                    <div class="loading-text">
+                        Pulling in the latest events and photos. Please stay on this page.
+                    </div>
+                    <div class="loading-dots"><span></span><span></span><span></span></div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
             st.write("Connecting to the DAAC photo library…")
-
-            gallery = app_script("gallery")
-
+            gallery = load_gallery()
             st.write("Building your carousel and album covers…")
 
             status.update(
-                label="DAAC photos loaded",
+                label="Photo album ready!",
                 state="complete",
                 expanded=False,
             )
@@ -383,6 +400,7 @@ def render_upload():
                 files=files,
             )
 
+        load_gallery.clear()
         st.success("Received! The photos are waiting for organizer approval.")
     except Exception as exc:
         st.error(str(exc))
@@ -445,6 +463,7 @@ def render_review():
                         batchId=batch["id"],
                         category=category,
                     )
+                    load_gallery.clear()
                     st.rerun()
                 except Exception as exc:
                     st.error(str(exc))
@@ -456,6 +475,7 @@ def render_review():
             ):
                 try:
                     app_script("reject", batchId=batch["id"])
+                    load_gallery.clear()
                     st.rerun()
                 except Exception as exc:
                     st.error(str(exc))
@@ -508,6 +528,61 @@ st.markdown(
     .welcome-text {
         color: #4f6466;
         margin-top: 3px;
+    }
+
+    .loading-card {
+        margin: 10px 0 22px;
+        padding: 34px 24px;
+        text-align: center;
+        border-radius: 22px;
+        background: white;
+        border: 1px solid #176d7320;
+        box-shadow: 0 10px 30px #176d7318;
+    }
+
+    .loading-logo {
+        font-size: 2.8rem;
+        margin-bottom: 6px;
+    }
+
+    .loading-title {
+        color: #176d73;
+        font-size: 1.35rem;
+        font-weight: 800;
+    }
+
+    .loading-text {
+        color: #5d6b6d;
+        margin-top: 6px;
+        font-size: 0.95rem;
+    }
+
+    .loading-dots {
+        display: flex;
+        justify-content: center;
+        gap: 7px;
+        margin-top: 18px;
+    }
+
+    .loading-dots span {
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        background: #176d73;
+        animation: loadingPulse 1.2s infinite ease-in-out;
+    }
+
+    .loading-dots span:nth-child(2) {
+        animation-delay: 0.15s;
+    }
+
+    .loading-dots span:nth-child(3) {
+        animation-delay: 0.3s;
+    }
+
+    @keyframes loadingPulse {
+        0%, 80%, 100% { opacity: 0.25; transform: scale(0.75); }
+        40% { opacity: 1; transform: scale(1); }
     }
 
     .album-card {
