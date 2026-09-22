@@ -41,8 +41,10 @@ def app_script(action, **payload):
     return data
 
 
-def image_bytes(photo):
-    return base64.b64decode(photo["thumbnail"]) if photo.get("thumbnail") else None
+def image_source(photo):
+    if photo.get("thumbnail"):
+        return "data:image/jpeg;base64," + photo["thumbnail"]
+    return photo.get("thumbnailUrl")
 
 
 def go_upload():
@@ -81,21 +83,24 @@ def render_album():
         st.error(str(exc))
         return
 
-    featured = [photo for photo in gallery.get("featured", []) if photo.get("thumbnail")]
+    featured = [
+        photo for photo in gallery.get("featured", [])
+        if photo.get("thumbnail") or photo.get("thumbnailUrl")
+    ]
 
     st.markdown("## Latest from DAAC")
 
     if featured:
         cards = "".join(
             "<a href='{url}' target='_blank'>"
-            "<figure><img src='data:image/jpeg;base64,{thumbnail}'>"
+            "<figure><img src='{image}' loading='lazy'>"
             "<figcaption>Open / download: {album}</figcaption>"
             "</figure></a>".format(
                 url=photo.get(
                     "url",
                     "https://drive.google.com/file/d/{}/view".format(photo["id"]),
                 ),
-                thumbnail=photo["thumbnail"],
+                image=image_source(photo),
                 album=photo.get("albumName", "DAAC"),
             )
             for photo in featured
@@ -121,7 +126,10 @@ def render_album():
                     use_container_width=True,
                 )
 
-            photos = [photo for photo in album.get("photos", []) if photo.get("thumbnail")]
+            photos = [
+                photo for photo in album.get("photos", [])
+                if photo.get("thumbnail") or photo.get("thumbnailUrl")
+            ]
 
             if not photos:
                 st.caption("These photos do not have browser previews yet.")
@@ -130,7 +138,7 @@ def render_album():
 
                 for index, photo in enumerate(photos):
                     column = columns[index % len(columns)]
-                    column.image(image_bytes(photo), width=160)
+                    column.image(image_source(photo), width=160)
                     column.link_button(
                         "Open / download full photo",
                         photo.get(
