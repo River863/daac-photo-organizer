@@ -28,6 +28,7 @@ function doPost(e) {
     if (data.action === 'approve') return reply(approve(data));
     if (data.action === 'reject') return reply(reject(data));
     if (data.action === 'gallery') return reply({ ok: true, ...gallery() });
+    if (data.action === 'album') return reply(album(data));
     if (data.action === 'photo') return reply(photo(data));
 
     throw new Error('Unknown request.');
@@ -228,31 +229,131 @@ function photoRecord(file, category, albumName, includeThumbnail) {
   };
 }
 
-function filesInFolder(folder, category, albumName, limit) {
+
+/*
+ * Read an album without returning every photo.
+ * Used by the homepage so the initial payload stays small.
+ */
+function albumSummary(folder, category) {
+  const files = folder.getFiles();
+  let count = 0;
+  let cover = null;
+  let newest = null;
+
+  while (files.hasNext()) {
+    const file = files.next();
+
+    if (file.getMimeType().indexOf('image/') !== 0) {
+      continue;
+    }
+
+    const createdAt = file.getDateCreated();
+
+    if (!cover || createdAt < cover.createdAt) {
+      cover = {
+        id: file.getId(),
+        category: category,
+        albumName: folder.getName(),
+        createdAt: createdAt.toISOString(),
+        thumbnail: null,
+        thumbnailUrl: thumbnailUrl(file),
+        url: file.getUrl()
+      };
+    }
+
+    if (!newest || createdAt > newest.createdAt) {
+      newest = {
+        id: file.getId(),
+        category: category,
+        albumName: folder.getName(),
+        createdAt: createdAt.toISOString(),
+        thumbnail: null,
+        thumbnailUrl: thumbnailUrl(file),
+        url: file.getUrl()
+      };
+    }
+
+    count++;
+  }
+
+  if (!cover) {
+    return null;
+  }
+
+  // Only the cover needs a base64 preview on the homepage.
+  try {
+    cover.thumbnail = thumbnail(DriveApp.getFileById(cover.id));
+  } catch (error) {
+    cover.thumbnail = null;
+  }
+
+  return {
+    id: folder.getId(),
+    name: folder.getName(),
+    category: category,
+    count: count,
+    cover: cover,
+    newest: newest,
+    url: folder.getUrl()
+  };
+}
+
+
+/*
+ * Return every photo only after the user opens an album.
+ */
+function album(data) {
+  if (!data.folderId) {
+    throw new Error('No album ID provided.');
+  }
+
+  const folder = DriveApp.getFolderById(data.folderId);
   const photos = [];
   const files = folder.getFiles();
 
   while (files.hasNext()) {
     const file = files.next();
 
-    if (file.getMimeType().indexOf('image/') === 0) {
-      const record = photoRecord(file, category, albumName, false);
-
-      // Generate one cover preview per album only.
-      if (photos.length === 0) {
-        record.thumbnail = thumbnail(file);
-      }
-
-      photos.push(record);
+    if (file.getMimeType().indexOf('image/') !== 0) {
+      continue;
     }
+
+    photos.push(photoRecord(
+      file,
+      data.category || '',
+      folder.getName(),
+      false
+    ));
   }
 
-  return photos;
+  photos.sort(function(a, b) {
+    return b.createdAt.localeCompare(a.createdAt);
+  });
+
+  return {
+    ok: true,
+    id: folder.getId(),
+    name: folder.getName(),
+    category: data.category || '',
+    count: photos.length,
+    photos: photos,
+    url: folder.getUrl()
+  };
 }
 
+
+/*
+ * Homepage payload:
+ * - album names
+ * - counts
+ * - one cover per album
+ * - 8 newest featured photos
+ *
+ * It no longer sends every photo to the homepage.
+ */
 function gallery() {
   const albums = [];
-  const featured = [];
+  const featuredCandidates = [];
 
   Object.keys(CATEGORY_FOLDERS).forEach(function(category) {
     const folder = DriveApp.getFolderById(CATEGORY_FOLDERS[category]);
@@ -260,44 +361,40 @@ function gallery() {
 
     while (childFolders.hasNext()) {
       const child = childFolders.next();
-      const photos = filesInFolder(child, category, child.getName(), 8);
+      const summary = albumSummary(child, category);
 
-      if (photos.length) {
-        const albumPhotos = photos;
-
-        albums.push({
-          name: child.getName(),
-          category: category,
-          count: albumPhotos.length,
-          photos: albumPhotos,
-          url: child.getUrl()
-        });
-
-        photos.forEach(function(item) {
-          featured.push(item);
-        });
+      if (!summary) {
+        continue;
       }
+
+      albums.push(summary);
+      featuredCandidates.push(summary.newest);
     }
   });
 
-  featured.sort(function(a, b) {
+  featuredCandidates.sort(function(a, b) {
     return b.createdAt.localeCompare(a.createdAt);
   });
 
-  albums.sort(function(a, b) {
-    return b.photos[0].createdAt.localeCompare(a.photos[0].createdAt);
-  });
+  const featured = featuredCandidates
+    .slice(0, 8)
+    .map(function(item) {
+      try {
+        item.thumbnail = thumbnail(
+          DriveApp.getFileById(item.id)
+        );
+      } catch (error) {
+        item.thumbnail = null;
+      }
+      return item;
+    });
 
-  const featuredRecords = featured.slice(0, 8).map(function(photo) {
-    if (!photo.thumbnail) {
-      const file = DriveApp.getFileById(photo.id);
-      photo.thumbnail = thumbnail(file);
-    }
-    return photo;
+  albums.sort(function(a, b) {
+    return b.newest.createdAt.localeCompare(a.newest.createdAt);
   });
 
   return {
-    featured: featuredRecords,
+    featured: featured,
     albums: albums
   };
 }
