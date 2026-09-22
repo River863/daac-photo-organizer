@@ -94,7 +94,7 @@ def render_album():
         with st.status("Loading DAAC photos…", expanded=True) as status:
             st.write("Connecting to the DAAC photo library…")
             gallery = app_script("gallery")
-            st.write("Loading the latest photos…")
+            st.write("Building the photo wall and carousel…")
             status.update(label="DAAC photos loaded", state="complete", expanded=False)
     except Exception as exc:
         st.error(f"We couldn't load the DAAC photo library: {exc}")
@@ -105,13 +105,13 @@ def render_album():
         if photo.get("thumbnail") or photo.get("thumbnailUrl")
     ]
 
-    st.markdown("## Latest from DAAC")
+    st.markdown("## 📸 DAAC Photo Carousel")
 
     if featured:
         cards = "".join(
             "<a href='{url}' target='_blank'>"
             "<figure><img src='{image}' loading='lazy'>"
-            "<figcaption>Open / download: {album}</figcaption>"
+            "<figcaption>{album}</figcaption>"
             "</figure></a>".format(
                 url=photo.get(
                     "url",
@@ -128,42 +128,104 @@ def render_album():
             unsafe_allow_html=True,
         )
     else:
-        st.info("Photos will appear here once they are added to a DAAC event album.")
+        st.info("Your approved photos will appear here.")
 
-    st.markdown("## Explore photo albums")
+    st.markdown("## 🗂️ Explore DAAC Photo Albums")
+    st.caption("Choose an album to browse its photos. Use the button inside each album to open the full Google Drive folder.")
 
-    for album in gallery.get("albums", []):
-        with st.expander(f"{album['name']}  ·  {album['count']} photos"):
-            st.caption(album.get("category", ""))
+    albums = gallery.get("albums", [])
 
-            if album.get("url"):
+    if not albums:
+        st.info("No approved photo albums yet.")
+        return
+
+    # Square album-cover cards.
+    album_cards = []
+    for index, album in enumerate(albums):
+        photos = album.get("photos", [])
+        cover = next(
+            (
+                photo for photo in photos
+                if photo.get("thumbnail") or photo.get("thumbnailUrl")
+            ),
+            None,
+        )
+        if not cover:
+            continue
+
+        album_cards.append(
+            {
+                "index": index,
+                "name": album.get("name", "Untitled album"),
+                "category": album.get("category", ""),
+                "count": album.get("count", 0),
+                "image": image_source(cover),
+                "url": album.get("url", ""),
+            }
+        )
+
+    if album_cards:
+        columns = st.columns(4)
+        for card in album_cards:
+            column = columns[card["index"] % 4]
+            with column:
+                st.markdown(
+                    f"""
+                    <div class="album-card">
+                        <img src="{card['image']}" loading="lazy">
+                        <div class="album-card-title">{card['name']}</div>
+                        <div class="album-card-meta">{card['category']} · {card['count']} photos</div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+                if st.button(
+                    "Open album",
+                    key=f"album_{card['index']}",
+                    use_container_width=True,
+                ):
+                    st.session_state[f"open_album_{card['index']}"] = not st.session_state.get(
+                        f"open_album_{card['index']}", False
+                    )
+
+    st.markdown("## 📂 Albums & Photos")
+
+    for index, album in enumerate(albums):
+        if not st.session_state.get(f"open_album_{index}", False):
+            continue
+
+        st.markdown(f"### {album['name']}")
+        st.caption(f"{album.get('category', '')} · {album.get('count', 0)} photos")
+
+        if album.get("url"):
+            st.link_button(
+                "Open full album in Google Drive",
+                album["url"],
+                use_container_width=True,
+            )
+
+        photos = album.get("photos", [])
+
+        if not photos:
+            st.info("No photos in this album.")
+            continue
+
+        columns = st.columns(4)
+        for photo_index, photo in enumerate(photos):
+            column = columns[photo_index % 4]
+            with column:
+                image = image_source(photo)
+                if image:
+                    st.image(image, width=220)
+                st.caption(photo.get("albumName", album["name"]))
                 st.link_button(
-                    "Open this full album and download photos",
-                    album["url"],
+                    "Open / download",
+                    photo.get(
+                        "url",
+                        "https://drive.google.com/file/d/{}/view".format(photo["id"]),
+                    ),
                     use_container_width=True,
                 )
-
-            photos = [
-                photo for photo in album.get("photos", [])
-                if photo.get("thumbnail") or photo.get("thumbnailUrl")
-            ]
-
-            if not photos:
-                st.caption("These photos do not have browser previews yet.")
-            else:
-                columns = st.columns(min(4, len(photos)))
-
-                for index, photo in enumerate(photos):
-                    column = columns[index % len(columns)]
-                    column.image(image_source(photo), width=160)
-                    column.link_button(
-                        "Open / download full photo",
-                        photo.get(
-                            "url",
-                            "https://drive.google.com/file/d/{}/view".format(photo["id"]),
-                        ),
-                        use_container_width=True,
-                    )
 
 
 def render_upload():
@@ -337,7 +399,7 @@ st.markdown(
         margin-top: 3px;
     }
 
-    .photo-strip {
+    .album-card {\n        overflow: hidden;\n        border-radius: 16px;\n        background: white;\n        box-shadow: 0 8px 20px #176d7320;\n        margin-bottom: 10px;\n    }\n\n    .album-card img {\n        width: 100%;\n        aspect-ratio: 1 / 1;\n        object-fit: cover;\n        display: block;\n    }\n\n    .album-card-title {\n        padding: 10px 12px 2px;\n        color: #176d73;\n        font-weight: 800;\n    }\n\n    .album-card-meta {\n        padding: 2px 12px 12px;\n        color: #5d6b6d;\n        font-size: 0.82rem;\n    }\n\n    .photo-strip {
         overflow: hidden;
         padding: 5px 0 18px;
     }
