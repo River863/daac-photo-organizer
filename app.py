@@ -26,6 +26,11 @@ def app_script(action, **payload):
     url = setting("APPS_SCRIPT_URL")
     token = setting("APPS_SCRIPT_TOKEN")
 
+    if not url:
+        raise RuntimeError("APPS_SCRIPT_URL is not configured.")
+    if not token:
+        raise RuntimeError("APPS_SCRIPT_TOKEN is not configured.")
+
     response = requests.post(
         url,
         json={"token": token, "action": action, **payload},
@@ -33,10 +38,25 @@ def app_script(action, **payload):
     )
     response.raise_for_status()
 
-    data = response.json()
+    try:
+        data = response.json()
+    except ValueError:
+        body = response.text.strip()
+        preview = body[:300] if body else "(empty response)"
+        raise RuntimeError(
+            "Google Apps Script returned a non-JSON response "
+            f"for '{action}'. Response: {preview}"
+        )
+
+    if not isinstance(data, dict):
+        raise RuntimeError(
+            f"Google Apps Script returned an unexpected response for '{action}'."
+        )
 
     if not data.get("ok"):
-        raise RuntimeError(data.get("error", "Google Drive could not complete that request."))
+        raise RuntimeError(
+            data.get("error", "Google Drive could not complete that request.")
+        )
 
     return data
 
@@ -241,14 +261,9 @@ def render_album():
 
     albums = gallery.get("albums", [])
 
-    # ---------------------------------------------------------
-    # TOP CAROUSEL
-    # ---------------------------------------------------------
-
     st.markdown("## 📸 Latest DAAC Photos")
 
     if featured:
-
         cards = "".join(
             """
             <a href="{url}" target="_blank" class="carousel-card">
@@ -278,15 +293,10 @@ def render_album():
             """,
             unsafe_allow_html=True,
         )
-
     else:
         st.info(
             "Your approved photos will appear here."
         )
-
-    # ---------------------------------------------------------
-    # ALBUM COVERS
-    # ---------------------------------------------------------
 
     st.markdown("## 🗂️ DAAC Photo Albums")
     st.caption(
@@ -300,14 +310,12 @@ def render_album():
     columns = st.columns(4)
 
     for album_index, album in enumerate(albums):
-
         cover = album.get("cover")
 
         if not cover:
             continue
 
         with columns[album_index % 4]:
-
             cover_image = image_source(cover)
 
             if cover_image:
@@ -341,10 +349,6 @@ def render_album():
                 st.session_state.selected_album = album_index
                 st.session_state.lightbox_photo_index = 0
                 st.rerun()
-
-    # ---------------------------------------------------------
-    # LIGHTBOX
-    # ---------------------------------------------------------
 
     selected_album = st.session_state.get(
         "selected_album"
