@@ -154,7 +154,7 @@ def show_album_lightbox(album):
 
 
 def render_album():
-    logo_path = os.path.join(os.path.dirname(__file__), "assets", "daac-logo.png")
+    logo_path = os.path.join(os.path.dirname(__file__), "assets", "daac-logo.svg")
     if os.path.exists(logo_path):
         logo_left, logo_center, logo_right = st.columns([1, 2, 1])
         with logo_center:
