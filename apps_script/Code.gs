@@ -50,8 +50,16 @@ function metadata(file) {
 }
 
 function thumbnail(file) {
-  const image = file.getThumbnail();
-  return image ? Utilities.base64Encode(image.getBytes()) : null;
+  try {
+    const image = file.getThumbnail();
+    return image ? Utilities.base64Encode(image.getBytes()) : null;
+  } catch (error) {
+    return null;
+  }
+}
+
+function thumbnailUrl(file) {
+  return 'https://drive.google.com/thumbnail?id=' + encodeURIComponent(file.getId()) + '&sz=w1000'; 
 }
 
 function upload(data) {
@@ -109,7 +117,8 @@ function pending() {
     groups[id].files.push({
       id: file.getId(),
       name: file.getName(),
-      thumbnail: thumbnail(file)
+      thumbnail: thumbnail(file),
+      thumbnailUrl: thumbnailUrl(file)
     });
   }
 
@@ -192,6 +201,7 @@ function photoRecord(file, category, albumName) {
     albumName: albumName,
     createdAt: file.getDateCreated().toISOString(),
     thumbnail: thumbnail(file),
+    thumbnailUrl: thumbnailUrl(file),
     url: file.getUrl()
   };
 }
