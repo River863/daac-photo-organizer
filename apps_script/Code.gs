@@ -1,4 +1,4 @@
-const ACCESS_TOKEN = PropertiesService.getScriptProperties().getProperty('DAACPHOTO_TOKEN');
+const ACCESS_TOKEN = 'DAACPHOTO';
 
 const PENDING_FOLDER_ID = '1HFbufjJ10tvxcA0ri8SP3cm0rIg5gRD2';
 
@@ -229,7 +229,6 @@ function photoRecord(file, category, albumName, includeThumbnail) {
   };
 }
 
-
 /*
  * Read an album without returning every photo.
  * Used by the homepage so the initial payload stays small.
@@ -280,7 +279,6 @@ function albumSummary(folder, category) {
     return null;
   }
 
-  // Only the cover needs a base64 preview on the homepage.
   try {
     cover.thumbnail = thumbnail(DriveApp.getFileById(cover.id));
   } catch (error) {
@@ -297,7 +295,6 @@ function albumSummary(folder, category) {
     url: folder.getUrl()
   };
 }
-
 
 /*
  * Return every photo only after the user opens an album.
@@ -340,7 +337,6 @@ function album(data) {
     url: folder.getUrl()
   };
 }
-
 
 /*
  * Homepage payload:
