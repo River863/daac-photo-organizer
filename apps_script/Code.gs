@@ -194,13 +194,13 @@ function reject(data) {
   return { ok: true };
 }
 
-function photoRecord(file, category, albumName) {
+function photoRecord(file, category, albumName, includeThumbnail) {
   return {
     id: file.getId(),
     category: category,
     albumName: albumName,
     createdAt: file.getDateCreated().toISOString(),
-    thumbnail: thumbnail(file),
+    thumbnail: includeThumbnail ? thumbnail(file) : null,
     thumbnailUrl: thumbnailUrl(file),
     url: file.getUrl()
   };
@@ -214,7 +214,10 @@ function filesInFolder(folder, category, albumName, limit) {
     const file = files.next();
 
     if (file.getMimeType().indexOf('image/') === 0) {
-      photos.push(photoRecord(file, category, albumName));
+      photos.push({
+        file: file,
+        record: photoRecord(file, category, albumName, false)
+      });
     }
   }
 
@@ -234,16 +237,20 @@ function gallery() {
       const photos = filesInFolder(child, category, child.getName(), 8);
 
       if (photos.length) {
+        const albumPhotos = photos.map(function(item) {
+          return item.record;
+        });
+
         albums.push({
           name: child.getName(),
           category: category,
-          count: photos.length,
-          photos: photos,
+          count: albumPhotos.length,
+          photos: albumPhotos,
           url: child.getUrl()
         });
 
-        photos.forEach(function(photo) {
-          featured.push(photo);
+        photos.forEach(function(item) {
+          featured.push(item);
         });
       }
     }
@@ -257,8 +264,14 @@ function gallery() {
     return b.photos[0].createdAt.localeCompare(a.photos[0].createdAt);
   });
 
+  const featuredRecords = featured.slice(0, 8).map(function(item) {
+    const record = item.record;
+    record.thumbnail = thumbnail(item.file);
+    return record;
+  });
+
   return {
-    featured: featured.slice(0, 8),
+    featured: featuredRecords,
     albums: albums
   };
 }
