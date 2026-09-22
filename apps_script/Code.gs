@@ -1,4 +1,4 @@
-const ACCESS_TOKEN = 'CHANGE_THIS_TO_A_LONG_RANDOM_CODE';
+const ACCESS_TOKEN = PropertiesService.getScriptProperties().getProperty('DAACPHOTO_TOKEN');
 
 const PENDING_FOLDER_ID = '1HFbufjJ10tvxcA0ri8SP3cm0rIg5gRD2';
 
