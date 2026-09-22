@@ -154,9 +154,15 @@ def show_album_lightbox(album):
 
 
 def render_album():
-    st.title("Welcome to DAAC Photo Hub")
+    logo_path = os.path.join(os.path.dirname(__file__), "assets", "daac-logo.png")
+    if os.path.exists(logo_path):
+        logo_left, logo_center, logo_right = st.columns([1, 2, 1])
+        with logo_center:
+            st.image(logo_path, use_container_width=True)
+
+    st.title("DAAC – Del Amo Action Committee")
     st.caption(
-        "A living record of DAAC’s events, projects, and partnerships."
+        "A photo album of DAAC’s events, projects, and community work."
     )
 
     st.markdown(
@@ -164,9 +170,9 @@ def render_album():
         <div class="welcome-card">
             <div class="welcome-icon">📷</div>
             <div>
-                <div class="welcome-title">Welcome to DAAC Photo Hub</div>
+                <div class="welcome-title">DAAC – Del Amo Action Committee</div>
                 <div class="welcome-text">
-                    Loading the latest DAAC photos and building your carousel…
+                    A photo album of DAAC’s events, projects, and community work.
                 </div>
             </div>
         </div>
