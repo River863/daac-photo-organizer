@@ -28,6 +28,7 @@ function doPost(e) {
     if (data.action === 'approve') return reply(approve(data));
     if (data.action === 'reject') return reply(reject(data));
     if (data.action === 'gallery') return reply({ ok: true, ...gallery() });
+    if (data.action === 'photo') return reply(photo(data));
 
     throw new Error('Unknown request.');
   } catch (error) {
@@ -50,7 +51,33 @@ function metadata(file) {
 }
 
 function thumbnail(file) {
-  return null;
+  try {
+    const image = file.getThumbnail();
+    return image ? Utilities.base64Encode(image.getBytes()) : null;
+  } catch (error) {
+    return null;
+  }
+}
+
+function photo(data) {
+  if (!data.fileId) {
+    throw new Error('No photo ID provided.');
+  }
+
+  const file = DriveApp.getFileById(data.fileId);
+  const image = thumbnail(file);
+
+  if (!image) {
+    throw new Error('Preview could not be generated for this photo.');
+  }
+
+  return {
+    ok: true,
+    id: file.getId(),
+    name: file.getName(),
+    mimeType: file.getMimeType(),
+    image: image
+  };
 }
 
 function thumbnailUrl(file) {
@@ -205,14 +232,11 @@ function filesInFolder(folder, category, albumName, limit) {
   const photos = [];
   const files = folder.getFiles();
 
-  while (files.hasNext() && photos.length < limit) {
+  while (files.hasNext()) {
     const file = files.next();
 
     if (file.getMimeType().indexOf('image/') === 0) {
-      photos.push({
-        file: file,
-        record: photoRecord(file, category, albumName, false)
-      });
+      photos.push(photoRecord(file, category, albumName, false));
     }
   }
 
@@ -232,9 +256,7 @@ function gallery() {
       const photos = filesInFolder(child, category, child.getName(), 8);
 
       if (photos.length) {
-        const albumPhotos = photos.map(function(item) {
-          return item.record;
-        });
+        const albumPhotos = photos;
 
         albums.push({
           name: child.getName(),
@@ -259,9 +281,7 @@ function gallery() {
     return b.photos[0].createdAt.localeCompare(a.photos[0].createdAt);
   });
 
-  const featuredRecords = featured.slice(0, 8).map(function(item) {
-    return item.record;
-  });
+  const featuredRecords = featured.slice(0, 8);
 
   return {
     featured: featuredRecords,
