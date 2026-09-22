@@ -236,7 +236,14 @@ function filesInFolder(folder, category, albumName, limit) {
     const file = files.next();
 
     if (file.getMimeType().indexOf('image/') === 0) {
-      photos.push(photoRecord(file, category, albumName, false));
+      const record = photoRecord(file, category, albumName, false);
+
+      // Generate one cover preview per album only.
+      if (photos.length === 0) {
+        record.thumbnail = thumbnail(file);
+      }
+
+      photos.push(record);
     }
   }
 
@@ -281,7 +288,13 @@ function gallery() {
     return b.photos[0].createdAt.localeCompare(a.photos[0].createdAt);
   });
 
-  const featuredRecords = featured.slice(0, 8);
+  const featuredRecords = featured.slice(0, 8).map(function(photo) {
+    if (!photo.thumbnail) {
+      const file = DriveApp.getFileById(photo.id);
+      photo.thumbnail = thumbnail(file);
+    }
+    return photo;
+  });
 
   return {
     featured: featuredRecords,
