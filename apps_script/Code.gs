@@ -50,12 +50,7 @@ function metadata(file) {
 }
 
 function thumbnail(file) {
-  try {
-    const image = file.getThumbnail();
-    return image ? Utilities.base64Encode(image.getBytes()) : null;
-  } catch (error) {
-    return null;
-  }
+  return null;
 }
 
 function thumbnailUrl(file) {
@@ -265,9 +260,7 @@ function gallery() {
   });
 
   const featuredRecords = featured.slice(0, 8).map(function(item) {
-    const record = item.record;
-    record.thumbnail = thumbnail(item.file);
-    return record;
+    return item.record;
   });
 
   return {
