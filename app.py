@@ -77,6 +77,25 @@ def image_source(photo):
     return photo.get("thumbnailUrl")
 
 
+def image_bytes(photo):
+    """Return review-preview image data as bytes."""
+    thumbnail = photo.get("thumbnail")
+
+    if thumbnail:
+        try:
+            return base64.b64decode(thumbnail)
+        except Exception:
+            pass
+
+    thumbnail_url = photo.get("thumbnailUrl")
+    if thumbnail_url:
+        response = requests.get(thumbnail_url, timeout=30)
+        response.raise_for_status()
+        return response.content
+
+    return None
+
+
 def go_upload():
     st.session_state.page = "Upload"
 
