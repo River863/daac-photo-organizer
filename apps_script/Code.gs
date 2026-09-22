@@ -227,18 +227,6 @@ function gallery() {
 
   Object.keys(CATEGORY_FOLDERS).forEach(function(category) {
     const folder = DriveApp.getFolderById(CATEGORY_FOLDERS[category]);
-    const directPhotos = filesInFolder(folder, category, category, 8);
-
-    if (directPhotos.length) {
-      albums.push({
-        name: category,
-        category: category,
-        count: directPhotos.length,
-        photos: directPhotos,
-        url: folder.getUrl()
-      });
-    }
-
     const childFolders = folder.getFolders();
 
     while (childFolders.hasNext()) {
@@ -253,14 +241,12 @@ function gallery() {
           photos: photos,
           url: child.getUrl()
         });
+
+        photos.forEach(function(photo) {
+          featured.push(photo);
+        });
       }
     }
-  });
-
-  albums.forEach(function(album) {
-    album.photos.forEach(function(photo) {
-      featured.push(photo);
-    });
   });
 
   featured.sort(function(a, b) {
