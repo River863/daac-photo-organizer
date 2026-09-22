@@ -66,9 +66,98 @@ def unlock():
         st.error("That admin code is not valid.")
 
 
+@st.dialog("DAAC Photo Album")
+def show_album_lightbox(album):
+    photos = album.get("photos", [])
+
+    if not photos:
+        st.info("This album has no photos.")
+        return
+
+    album_name = album.get("name", "DAAC Album")
+    st.subheader(album_name)
+    st.caption(
+        f"{album.get('category', '')} · {len(photos)} photos"
+    )
+
+    index = st.session_state.get("lightbox_photo_index", 0)
+    index = max(0, min(index, len(photos) - 1))
+    photo = photos[index]
+
+    try:
+        preview = app_script("photo", fileId=photo["id"])
+        image = "data:image/jpeg;base64," + preview["image"]
+        st.image(image, use_container_width=True)
+    except Exception:
+        image = image_source(photo)
+        if image:
+            st.image(image, use_container_width=True)
+        else:
+            st.warning("This photo could not be previewed.")
+
+    st.caption(f"Photo {index + 1} of {len(photos)}")
+
+    previous, download, next_button = st.columns(3)
+
+    with previous:
+        if st.button(
+            "← Previous",
+            use_container_width=True,
+            disabled=index == 0,
+        ):
+            st.session_state.lightbox_photo_index = index - 1
+            st.rerun()
+
+    with download:
+        st.link_button(
+            "Open / download original",
+            photo.get(
+                "url",
+                "https://drive.google.com/file/d/{}/view".format(photo["id"]),
+            ),
+            use_container_width=True,
+        )
+
+    with next_button:
+        if st.button(
+            "Next →",
+            use_container_width=True,
+            disabled=index == len(photos) - 1,
+        ):
+            st.session_state.lightbox_photo_index = index + 1
+            st.rerun()
+
+    st.markdown("### All photos in this album")
+
+    thumbs = st.columns(5)
+
+    for photo_index, item in enumerate(photos):
+        with thumbs[photo_index % 5]:
+            thumb = image_source(item)
+            if thumb:
+                st.image(thumb, use_container_width=True)
+
+            if st.button(
+                str(photo_index + 1),
+                key=f"lightbox_thumb_{album_name}_{photo_index}",
+                use_container_width=True,
+            ):
+                st.session_state.lightbox_photo_index = photo_index
+                st.rerun()
+
+    if album.get("url"):
+        st.link_button(
+            "Open complete Google Drive folder",
+            album["url"],
+            use_container_width=True,
+        )
+
+
 def render_album():
     st.title("Welcome to DAAC Photo Hub")
-    st.caption("A living record of DAAC’s events, projects, and partnerships.")
+    st.caption(
+        "A living record of DAAC’s events, projects, and partnerships."
+    )
 
     st.markdown(
         """
@@ -76,7 +165,9 @@ def render_album():
             <div class="welcome-icon">📷</div>
             <div>
                 <div class="welcome-title">Welcome to DAAC Photo Hub</div>
-                <div class="welcome-text">Loading the latest DAAC photos and building your carousel…</div>
+                <div class="welcome-text">
+                    Loading the latest DAAC photos and building your carousel…
+                </div>
             </div>
         </div>
         """,
@@ -84,38 +175,64 @@ def render_album():
     )
 
     st.button(
-        "📷  Upload photos to DAAC",
+        "📷 Upload photos to DAAC",
         type="primary",
         use_container_width=True,
         on_click=go_upload,
     )
 
     try:
-        with st.status("Loading DAAC photos…", expanded=True) as status:
+        with st.status(
+            "Loading DAAC photos…",
+            expanded=True
+        ) as status:
+
             st.write("Connecting to the DAAC photo library…")
+
             gallery = app_script("gallery")
-            st.write("Building the photo wall and carousel…")
-            status.update(label="DAAC photos loaded", state="complete", expanded=False)
+
+            st.write("Building your carousel and album covers…")
+
+            status.update(
+                label="DAAC photos loaded",
+                state="complete",
+                expanded=False,
+            )
+
     except Exception as exc:
-        st.error(f"We couldn't load the DAAC photo library: {exc}")
+        st.error(
+            f"We couldn't load the DAAC photo library: {exc}"
+        )
         return
 
     featured = [
-        photo for photo in gallery.get("featured", [])
+        photo
+        for photo in gallery.get("featured", [])
         if photo.get("thumbnail") or photo.get("thumbnailUrl")
     ]
 
-    st.markdown("## 📸 DAAC Photo Carousel")
+    albums = gallery.get("albums", [])
+
+    # ---------------------------------------------------------
+    # TOP CAROUSEL
+    # ---------------------------------------------------------
+
+    st.markdown("## 📸 Latest DAAC Photos")
 
     if featured:
+
         cards = "".join(
-            "<a href='{url}' target='_blank'>"
-            "<figure><img src='{image}' loading='lazy'>"
-            "<figcaption>{album}</figcaption>"
-            "</figure></a>".format(
+            """
+            <a href="{url}" target="_blank" class="carousel-card">
+                <img src="{image}" loading="lazy">
+                <div class="carousel-caption">{album}</div>
+            </a>
+            """.format(
                 url=photo.get(
                     "url",
-                    "https://drive.google.com/file/d/{}/view".format(photo["id"]),
+                    "https://drive.google.com/file/d/{}/view".format(
+                        photo["id"]
+                    ),
                 ),
                 image=image_source(photo),
                 album=photo.get("albumName", "DAAC"),
@@ -124,108 +241,96 @@ def render_album():
         )
 
         st.markdown(
-            f"<div class='photo-strip'><div class='photo-track'>{cards}{cards}</div></div>",
+            f"""
+            <div class="photo-strip">
+                <div class="photo-track">
+                    {cards}{cards}
+                </div>
+            </div>
+            """,
             unsafe_allow_html=True,
         )
+
     else:
-        st.info("Your approved photos will appear here.")
+        st.info(
+            "Your approved photos will appear here."
+        )
 
-    st.markdown("## 🗂️ Explore DAAC Photo Albums")
-    st.caption("Choose an album to browse its photos. Use the button inside each album to open the full Google Drive folder.")
+    # ---------------------------------------------------------
+    # ALBUM COVERS
+    # ---------------------------------------------------------
 
-    albums = gallery.get("albums", [])
+    st.markdown("## 🗂️ DAAC Photo Albums")
+    st.caption(
+        "Click an album to open its photo lightbox."
+    )
 
     if not albums:
         st.info("No approved photo albums yet.")
         return
 
-    # Square album-cover cards.
-    album_cards = []
-    for index, album in enumerate(albums):
-        photos = album.get("photos", [])
-        cover = next(
-            (
-                photo for photo in photos
-                if photo.get("thumbnail") or photo.get("thumbnailUrl")
-            ),
-            None,
-        )
-        if not cover:
-            continue
+    columns = st.columns(4)
 
-        album_cards.append(
-            {
-                "index": index,
-                "name": album.get("name", "Untitled album"),
-                "category": album.get("category", ""),
-                "count": album.get("count", 0),
-                "image": image_source(cover),
-                "url": album.get("url", ""),
-            }
-        )
-
-    if album_cards:
-        columns = st.columns(4)
-        for card in album_cards:
-            column = columns[card["index"] % 4]
-            with column:
-                st.markdown(
-                    f"""
-                    <div class="album-card">
-                        <img src="{card['image']}" loading="lazy">
-                        <div class="album-card-title">{card['name']}</div>
-                        <div class="album-card-meta">{card['category']} · {card['count']} photos</div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-                if st.button(
-                    "Open album",
-                    key=f"album_{card['index']}",
-                    use_container_width=True,
-                ):
-                    st.session_state[f"open_album_{card['index']}"] = not st.session_state.get(
-                        f"open_album_{card['index']}", False
-                    )
-
-    st.markdown("## 📂 Albums & Photos")
-
-    for index, album in enumerate(albums):
-        if not st.session_state.get(f"open_album_{index}", False):
-            continue
-
-        st.markdown(f"### {album['name']}")
-        st.caption(f"{album.get('category', '')} · {album.get('count', 0)} photos")
-
-        if album.get("url"):
-            st.link_button(
-                "Open full album in Google Drive",
-                album["url"],
-                use_container_width=True,
-            )
+    for album_index, album in enumerate(albums):
 
         photos = album.get("photos", [])
 
         if not photos:
-            st.info("No photos in this album.")
             continue
 
-        columns = st.columns(4)
-        for photo_index, photo in enumerate(photos):
-            column = columns[photo_index % 4]
-            with column:
-                image = image_source(photo)
-                if image:
-                    st.image(image, width=220)
-                st.caption(photo.get("albumName", album["name"]))
-                st.link_button(
-                    "Open / download",
-                    photo.get(
-                        "url",
-                        "https://drive.google.com/file/d/{}/view".format(photo["id"]),
-                    ),
-                    use_container_width=True,
+        cover = photos[0]
+
+        with columns[album_index % 4]:
+
+            cover_image = image_source(cover)
+
+            if cover_image:
+                st.markdown(
+                    f"""
+                    <div class="album-card">
+                        <img
+                            src="{cover_image}"
+                            loading="lazy"
+                        >
+                        <div class="album-card-body">
+                            <div class="album-card-title">
+                                {album.get("name", "Untitled Album")}
+                            </div>
+                            <div class="album-card-meta">
+                                {album.get("category", "")}
+                                · {len(photos)} photos
+                            </div>
+                        </div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
                 )
+
+            if st.button(
+                "View album",
+                key=f"open_album_{album_index}",
+                use_container_width=True,
+                type="primary",
+            ):
+                st.session_state.selected_album = album_index
+                st.session_state.lightbox_photo_index = 0
+                st.rerun()
+
+    # ---------------------------------------------------------
+    # LIGHTBOX
+    # ---------------------------------------------------------
+
+    selected_album = st.session_state.get(
+        "selected_album"
+    )
+
+    if (
+        selected_album is not None
+        and 0 <= selected_album < len(albums)
+    ):
+        show_album_lightbox(
+            albums[selected_album]
+        )
 
 
 def render_upload():
@@ -399,7 +504,39 @@ st.markdown(
         margin-top: 3px;
     }
 
-    .album-card {\n        overflow: hidden;\n        border-radius: 16px;\n        background: white;\n        box-shadow: 0 8px 20px #176d7320;\n        margin-bottom: 10px;\n    }\n\n    .album-card img {\n        width: 100%;\n        aspect-ratio: 1 / 1;\n        object-fit: cover;\n        display: block;\n    }\n\n    .album-card-title {\n        padding: 10px 12px 2px;\n        color: #176d73;\n        font-weight: 800;\n    }\n\n    .album-card-meta {\n        padding: 2px 12px 12px;\n        color: #5d6b6d;\n        font-size: 0.82rem;\n    }\n\n    .photo-strip {
+    .album-card {
+        overflow: hidden;
+        border-radius: 18px;
+        background: white;
+        box-shadow: 0 8px 22px #176d7320;
+        margin-bottom: 10px;
+        border: 1px solid #176d7318;
+    }
+
+    .album-card img {
+        width: 100%;
+        aspect-ratio: 1 / 1;
+        object-fit: cover;
+        display: block;
+    }
+
+    .album-card-body {
+        padding: 12px 14px 14px;
+    }
+
+    .album-card-title {
+        color: #176d73;
+        font-weight: 800;
+        font-size: 1rem;
+    }
+
+    .album-card-meta {
+        color: #5d6b6d;
+        font-size: 0.82rem;
+        margin-top: 3px;
+    }
+
+    .photo-strip {
         overflow: hidden;
         padding: 5px 0 18px;
     }
