@@ -46,6 +46,11 @@ def load_gallery():
     return app_script("gallery")
 
 
+@st.cache_data(ttl=300, show_spinner=False)
+def load_album(folder_id, category):
+    return app_script("album", folderId=folder_id, category=category)
+
+
 def image_source(photo):
     if photo.get("thumbnail"):
         return "data:image/jpeg;base64," + photo["thumbnail"]
@@ -296,12 +301,10 @@ def render_album():
 
     for album_index, album in enumerate(albums):
 
-        photos = album.get("photos", [])
+        cover = album.get("cover")
 
-        if not photos:
+        if not cover:
             continue
-
-        cover = photos[0]
 
         with columns[album_index % 4]:
 
@@ -321,7 +324,7 @@ def render_album():
                             </div>
                             <div class="album-card-meta">
                                 {album.get("category", "")}
-                                · {len(photos)} photos
+                                · {album.get("count", 0)} photos
                             </div>
                         </div>
                     </div>
@@ -351,9 +354,19 @@ def render_album():
         selected_album is not None
         and 0 <= selected_album < len(albums)
     ):
-        show_album_lightbox(
-            albums[selected_album]
-        )
+        selected = albums[selected_album]
+
+        try:
+            with st.spinner("Opening this album…"):
+                full_album = load_album(
+                    selected["id"],
+                    selected.get("category", "")
+                )
+            show_album_lightbox(full_album)
+        except Exception as exc:
+            st.error(
+                f"We couldn't open this album: {exc}"
+            )
 
 
 def render_upload():
@@ -401,6 +414,7 @@ def render_upload():
             )
 
         load_gallery.clear()
+        load_album.clear()
         st.success("Received! The photos are waiting for organizer approval.")
     except Exception as exc:
         st.error(str(exc))
@@ -464,6 +478,7 @@ def render_review():
                         category=category,
                     )
                     load_gallery.clear()
+                    load_album.clear()
                     st.rerun()
                 except Exception as exc:
                     st.error(str(exc))
